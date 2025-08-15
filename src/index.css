@@ -2,10 +2,25 @@
 @tailwind components;
 @tailwind utilities;
 
-/* (Optionnel) Tes variables/overrides globaux */
+/* tes variables globales / styles de secours */
 :root{
   --bg:#0b0b0c;
   --panel:#111216;
   --muted:#9aa0a6;
-  --primary:#7c3aed; /* adapte si tu as déjà des variables dans App.jsx */
+  --primary:#7c3aed;
+  --primary-hover:#9f53ff;
+  --text:#ffffff;
+}
+
+/* petites classes utilitaires “maison” si tu utilises btn / panel */
+.button, .btn{
+  background: var(--primary);
+  color: var(--text);
+  border-radius: 0.5rem;
+  padding: .6rem 1rem;
+}
+.panel{
+  background: var(--panel);
+  border-radius: .75rem;
+  padding: 1rem;
 }

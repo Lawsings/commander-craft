@@ -1,5 +1,5 @@
+import './index.css'   // <-- doit être la toute première importation CSS
 import React from 'react'
-import './index.css'
 import { createRoot } from 'react-dom/client'
 import App from './App.jsx'
 
