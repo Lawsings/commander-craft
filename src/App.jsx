@@ -2,11 +2,12 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCcw, Shuffle, Copy, Download, Upload, Settings2, Info, Sparkles, Trash2, Sun, Moon } from "lucide-react";
 
 // Import des modules séparés
-import './index.css'; // Assurez-vous que l'import pointe vers index.css
+import './index.css';
 import {
   MECHANIC_TAGS, RE, sleep, ciMask, identityToQuery, nameOf, oracle,
   isCommanderLegal, getCI, unionCI, priceEUR, edhrecScore, distinctByName,
-  sf, bundleCard, bundleByName, primaryTypeLabel, parseCollectionFile
+  sf, bundleCard, bundleByName, primaryTypeLabel, parseCollectionFile,
+  fetchCommanderDeckCount // Nouvelle fonction importée
 } from './utils.js';
 import { useCommanderResolution } from './hooks.js';
 import ManaCost from './components/ManaCost.jsx';
@@ -18,7 +19,7 @@ import CardModal from './components/CardModal.jsx';
 
 
 export default function App() {
-  // THEME: persist + system default; no layout change
+  // THEME
   const initialTheme = useMemo(() => {
     try {
       const saved = localStorage.getItem('theme');
@@ -54,17 +55,16 @@ export default function App() {
   const [showModal, setShowModal] = useState(false);
   const [modalCard, setModalCard] = useState(null);
   const [modalOwned, setModalOwned] = useState(false);
+  // NOUVEL ÉTAT pour les données EDHREC
+  const [commandersExtraInfo, setCommandersExtraInfo] = useState({});
 
   const commanderSectionRef = useRef(null);
+  const IDENTITY_COLOR_ORDER = ['W', 'B', 'U', 'G', 'R'];
 
-  // Ordre des couleurs pour les boutons de sélection d'identité
-  const IDENTITY_COLOR_ORDER = ['W', 'B', 'U', 'G', 'R']; // Ordre: Blanc, Noir, Bleu, Vert, Rouge
-
-  // Commander (resolved when select mode)
   const selectedCommanderCard = useCommanderResolution(commanderMode, chosenCommander, setDesiredCI, setError);
   const toggleMechanic = (key) => setMechanics(prev => prev.includes(key) ? prev.filter(k => k !== key) : (prev.length >= 3 ? (setLimitNotice("Maximum 3 mécaniques à la fois"), setTimeout(() => setLimitNotice(""), 1500), prev) : [...prev, key]));
 
-  /*********** Generation (Logique principale gardée dans App.jsx pour l'accès à l'état) ***********/
+  // Logique de génération
   const mechanicScore = (card) => mechanics.length ? MECHANIC_TAGS.reduce((s, m) => s + (mechanics.includes(m.key) && m.matchers.some(k => oracle(card).includes(k.toLowerCase())) ? 1 : 0), 0) : 0;
   const sortByPreference = (pool) => { const rb = new Map(pool.map(c => [nameOf(c), Math.random()])); return [...pool].sort((a, b) => { const owA = ownedMap.has(nameOf(a).toLowerCase()) ? 1 : 0, owB = ownedMap.has(nameOf(b).toLowerCase()) ? 1 : 0; const sa = weightOwned * owA + weightEdhrec * edhrecScore(a) + 0.25 * mechanicScore(a); const sb = weightOwned * owB + weightEdhrec * edhrecScore(b) + 0.25 * mechanicScore(b); if (sa !== sb) return sb - sa; const pA = priceEUR(a), pB = priceEUR(b); return pA !== pB ? pA - pB : rb.get(nameOf(a)) - rb.get(nameOf(b)); }); };
   const greedyPickUnique = (sortedPool, need, banned, currentCost, budget) => { const picks = []; const taken = new Set(banned); let cost = currentCost; for (const c of sortedPool) { if (picks.length >= need) break; const n = nameOf(c); if (taken.has(n)) continue; const p = priceEUR(c); if (budget > 0 && (cost + p) > budget) continue; picks.push(c); taken.add(n); cost += p; } return { picks, cost }; };
@@ -76,10 +76,26 @@ export default function App() {
   const maybeAddBackground = async (primary) => { const wants = allowBackground && oracle(primary).includes("choose a background"); if (!wants) return null; const q = ["legal:commander", "type:background", "game:paper", identityToQuery(getCI(primary) || "wubrg")].join(" "); for (let i = 0; i < 10; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; return c; } return null; };
   const fetchPool = async (ci) => { const base = `legal:commander game:paper ${identityToQuery(ci)} -is:funny`; const mech = mechanics.length ? ` (${mechanics.map(k => { const tag = MECHANIC_TAGS.find(m => m.key === k); if (!tag) return ""; const parts = tag.matchers.map(m => `o:\"${m}\"`).join(" or "); return `(${parts})`; }).join(" or ")})` : ""; const spellsQ = `${base} -type:land -type:background${mech}`; const landsQ = `${base} type:land -type:basic`; const gather = async (q, b, pages = 2) => { let page = await sf.search(q, { unique: "cards", order: "random" }); b.push(...page.data); for (let i = 1; i < pages && page.has_more; i++) { await sleep(100); page = await fetch(page.next_page).then(r => r.json()); b.push(...page.data); } }; const spells = [], lands = []; await gather(spellsQ, spells, 2); await gather(landsQ, lands, 1); return { spells: distinctByName(spells).filter(isCommanderLegal), lands: distinctByName(lands).filter(isCommanderLegal) }; };
   async function buildLandCards(landsMap) { const out = []; for (const [n, q] of Object.entries(landsMap)) { try { const b = await bundleByName(n); out.push({ ...b, qty: q }); } catch { out.push({ name: n, qty: q, image: "", small: "", oracle_en: "", mana_cost: "", cmc: 0, prices: {}, scryfall_uri: "" }); } await sleep(60); } return out; }
+  
   const generate = async () => {
-    setError(""); setLoading(true); setDeck(null); try {
+    setError(""); setLoading(true); setDeck(null); setCommandersExtraInfo({});
+    try {
       const primary = await pickCommander(commanderMode === 'random' ? desiredCI : getCI(selectedCommanderCard));
-      let cmdrs = [primary]; const partner = await maybeAddPartner(primary); const background = await maybeAddBackground(primary); if (partner && background) cmdrs = [primary, partner]; else if (partner) cmdrs = [primary, partner]; else if (background) cmdrs = [primary, background]; let ci = getCI(primary); if (cmdrs.length > 1) for (const c of cmdrs) ci = unionCI(ci, getCI(c));
+      let cmdrs = [primary]; const partner = await maybeAddPartner(primary); const background = await maybeAddBackground(primary); if (partner) cmdrs.push(partner); else if (background) cmdrs.push(background);
+      let ci = getCI(primary); if (cmdrs.length > 1) for (const c of cmdrs) ci = unionCI(ci, getCI(c));
+      
+      const commandersFull = cmdrs.map(bundleCard);
+      
+      // LANCE LA RÉCUPÉRATION DES DONNÉES EDHREC EN PARALLÈLE
+      const extraInfoPromises = commandersFull.map(c => fetchCommanderDeckCount(c.name));
+      Promise.all(extraInfoPromises).then(results => {
+          const newExtraInfo = {};
+          commandersFull.forEach((c, index) => {
+              newExtraInfo[c.name] = { deckCount: results[index] };
+          });
+          setCommandersExtraInfo(newExtraInfo);
+      });
+
       const pool = await fetchPool(ci);
       const totalBudget = Number(deckBudget) || 0; let spent = cmdrs.reduce((s, c) => s + priceEUR(c), 0); if (totalBudget > 0 && spent > totalBudget) throw new Error(`Le budget (${totalBudget.toFixed(2)}€) est déjà dépassé par le coût des commandants (${spent.toFixed(2)}€).`);
       const total = 100; const landsTarget = Math.max(32, Math.min(40, targetLands)); const spellsTarget = total - cmdrs.length - landsTarget;
@@ -88,7 +104,7 @@ export default function App() {
       const balanced = balanceSpells(pickedSpells, pool.spells, totalBudget, spent); pickedSpells = balanced.picks; spent = balanced.spent;
       const basicsNeeded = Math.max(landsTarget - Math.min(8, landsPref.length), 0); const landsMap = buildManaBase(ci, basicsNeeded); const chosenNonbasics = []; for (const nb of landsPref) { if (chosenNonbasics.length >= 8) break; const p = priceEUR(nb); if (totalBudget > 0 && (spent + p) > totalBudget) continue; chosenNonbasics.push(nb); spent += p; } for (const nb of chosenNonbasics) { landsMap[nameOf(nb)] = (landsMap[nameOf(nb)] || 0) + 1; }
       const currentCount = cmdrs.length + pickedSpells.length + Object.values(landsMap).reduce((a, b) => a + b, 0); let missing = 100 - currentCount; const basicsByColor = { W: "Plains", U: "Island", B: "Swamp", R: "Mountain", G: "Forest" }; const firstBasic = (ci.split("")[0] && basicsByColor[ci.split("")[0]]) || "Wastes"; while (missing > 0) { landsMap[firstBasic] = (landsMap[firstBasic] || 0) + 1; missing--; }
-      const commandersFull = cmdrs.map(bundleCard);
+      
       const nonlandCards = pickedSpells.map(bundleCard);
       const landCards = await buildLandCards(landsMap);
       setDeck({
@@ -112,14 +128,12 @@ export default function App() {
     if (!prefersReduced) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } else { el.scrollIntoView(); }
   }, [deck]);
 
-  /******** Exports & Utils ********/
   const download = (filename, text) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); a.download = filename; document.body.appendChild(a); a.click(); a.remove(); };
   const mtgoExport = (deck) => { const lines = []; deck.commanders.forEach(c => lines.push(`1 ${c}`)); Object.entries(deck.nonlands).forEach(([n, q]) => lines.push(`${q} ${n}`)); Object.entries(deck.lands).forEach(([n, q]) => lines.push(`${q} ${n}`)); return lines.join("\n"); };
   const exportTxt = () => { if (deck) download("commander-deck.txt", mtgoExport(deck)); };
   const exportJson = () => { if (deck) download("commander-deck.json", JSON.stringify(deck, null, 2)); };
   const copyList = () => { if (!deck) return; const lines = [`// CI: ${deck.colorIdentity || "(Colorless)"} • Budget: ${deck.budget || 0}€ • Coût estimé: ${deck.spent || 0}€`, ...deck.commanders.map(c => `1 ${c} // Commander`), ...Object.entries(deck.nonlands).map(([n, q]) => `${q} ${n}`), ...Object.entries(deck.lands).map(([n, q]) => `${q} ${n}`)]; navigator.clipboard.writeText(lines.join("\n")); };
 
-  /******** Collection (multi-files) ********/
   const handleCollectionFile = async (f) => { if (!f) return; const parsed = await parseCollectionFile(f); const entry = { id: `${Date.now()}-${Math.random().toString(16).slice(2)}`, name: f.name, map: parsed }; setUploadedFiles(prev => { const next = [...prev, entry]; const merged = new Map(); for (const file of next) { for (const [k, q] of file.map) { merged.set(k, (merged.get(k) || 0) + q); } } setOwnedMap(merged); return next; }); };
   const removeUploadedFile = (id) => setUploadedFiles(prev => { const next = prev.filter(x => x.id !== id); const merged = new Map(); for (const file of next) { for (const [k, q] of file.map) { merged.set(k, (merged.get(k) || 0) + q); } } setOwnedMap(merged); return next; });
   const clearCollection = () => { setOwnedMap(new Map()); setUploadedFiles([]); };
@@ -127,11 +141,8 @@ export default function App() {
   const reequilibrer = async () => { if (!deck) return; try { setLoading(true); const ci = deck.colorIdentity; const base = `legal:commander game:paper ${identityToQuery(ci)} -is:funny -type:land -type:background`; let page = await sf.search(base, { unique: "cards", order: "edhrec" }); let pool = page.data; if (page.has_more) { const next = await fetch(page.next_page).then(r => r.json()); pool = pool.concat(next.data || []); } pool = distinctByName(pool).filter(isCommanderLegal); const currentNames = new Set(Object.keys(deck.nonlands)); const currentObjs = pool.filter(c => currentNames.has(nameOf(c))); const others = pool.filter(c => !currentNames.has(nameOf(c))); const totalBudget = deck.budget || 0; let spent = 0; const balanced = balanceSpells(currentObjs, others, totalBudget, spent); const newNonlands = Object.fromEntries(balanced.picks.map(c => [nameOf(c), 1])); const newNonlandCards = balanced.picks.map(bundleCard); setDeck(prev => ({ ...prev, nonlands: newNonlands, nonlandCards: newNonlandCards, balanceCounts: balanced.counts, balanceTargets: targets })); } finally { setLoading(false); } };
 
   const deckSize = useMemo(() => { if (!deck) return 0; const cmd = deck.commanders?.length || 0; const nl = Object.values(deck?.nonlands || {}).reduce((a, b) => a + b, 0); const ld = Object.values(deck?.lands || {}).reduce((a, b) => a + b, 0); return cmd + nl + ld; }, [deck]);
-
   const nonlandsByType = useMemo(() => { if (!deck?.nonlandCards) return {}; const groups = {}; for (const c of deck.nonlandCards) { const k = primaryTypeLabel(c.type_line); (groups[k] ||= []).push(c); } const order = ["Créatures", "Artefacts", "Enchantements", "Éphémères", "Rituels", "Planeswalkers", "Batailles", "Autres"]; const sorted = {}; for (const k of order) { if (groups[k]) sorted[k] = groups[k]; } return sorted; }, [deck]);
-
   const isOwned = (cardName) => ownedMap.has((cardName || "").toLowerCase());
-
   const stats = useMemo(() => {
     if (!deck) return null;
     const own = new Map(ownedMap);
@@ -140,16 +151,12 @@ export default function App() {
     (deck.commanders || []).forEach(n => ownedCount += take(n, 1));
     Object.entries(deck.nonlands || {}).forEach(([n, q]) => ownedCount += take(n, q));
     Object.entries(deck.lands || {}).forEach(([n, q]) => ownedCount += take(n, q));
-
     const total = deckSize;
     const ownedPct = total ? Math.round((ownedCount / total) * 100) : 0;
-
     const cmcCards = [...(deck.commandersFull || []), ...(deck.nonlandCards || [])];
     const cmcVals = cmcCards.map(c => Number(c.cmc) || 0);
     const avgCmc = cmcVals.length ? (cmcVals.reduce((a, b) => a + b, 0) / cmcVals.length) : 0;
-
     const typeCounts = Object.fromEntries(Object.entries(nonlandsByType).map(([k, arr]) => [k, arr.length]));
-
     return { ownedCount, ownedPct, avgCmc: Number(avgCmc.toFixed(2)), typeCounts };
   }, [deck, ownedMap, deckSize, nonlandsByType]);
 
@@ -166,10 +173,8 @@ export default function App() {
         </header>
 
         <div className="grid lg:grid-cols-3 gap-8 mt-8">
-          {/* Paramètres */}
           <div className="glass p-6 lg:col-span-1">
             <div className="flex items-center gap-2 mb-4"><Settings2 className="h-5 w-5" /><h2 className="font-medium">Paramètres</h2></div>
-
             <div className="space-y-2">
               <span className="muted text-sm">Commandant</span>
               <div className="flex gap-2 flex-wrap">
@@ -179,173 +184,72 @@ export default function App() {
               {commanderMode === 'select' && (
                 <div className="mt-2">
                   <CommanderAutocomplete value={chosenCommander} onSelect={setChosenCommander} />
-                  {selectedCommanderCard && (
-                    <p className="text-xs muted mt-1">Sélectionné: <span className="text-card-foreground">{nameOf(selectedCommanderCard)}</span> • Identité: {getCI(selectedCommanderCard)}</p>
-                  )}
+                  {selectedCommanderCard && (<p className="text-xs muted mt-1">Sélectionné: <span className="text-card-foreground">{nameOf(selectedCommanderCard)}</span> • Identité: {getCI(selectedCommanderCard)}</p>)}
                 </div>
               )}
             </div>
-
             {commanderMode !== 'select' && (
               <div className="mt-4">
                 <span className="muted text-sm">Identité couleur (optionnel)</span>
                 <div className="flex gap-2 mt-2 flex-wrap items-center">
                   <button className="btn p-2.5" onClick={() => setDesiredCI("")} title="Aucune couleur (Réinitialiser)">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="12" cy="12" r="10"/>
-                        <path d="m4.9 4.9 14.2 14.2"/>
-                     </svg>
+                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
                   </button>
-
-                  {IDENTITY_COLOR_ORDER.map(c => (
-                    <button
-                      key={c}
-                      className={`btn p-2 ${desiredCI.includes(c) ? 'glass-strong' : ''}`}
-                      onClick={() => {
-                        const set = new Set(desiredCI.split(""));
-                        set.has(c) ? set.delete(c) : set.add(c);
-                        setDesiredCI(ciMask(Array.from(set).join("")));
-                      }}
-                    >
-                      <img
-                        src={`https://svgs.scryfall.io/card-symbols/${c}.svg`}
-                        alt={c}
-                        style={{ width: '24px', height: '24px', display: 'block' }}
-                      />
-                    </button>
-                  ))}
+                  {IDENTITY_COLOR_ORDER.map(c => (<button key={c} className={`btn p-2 ${desiredCI.includes(c) ? 'glass-strong' : ''}`} onClick={() => { const set = new Set(desiredCI.split("")); set.has(c) ? set.delete(c) : set.add(c); setDesiredCI(ciMask(Array.from(set).join(""))); }}><img src={`https://svgs.scryfall.io/card-symbols/${c}.svg`} alt={c} style={{ width: '24px', height: '24px', display: 'block' }} /></button>))}
                 </div>
               </div>
             )}
-
             <div className="mt-4">
               <span className="muted text-sm">Mécaniques préférées (max 3)</span>
               <div className="mt-2 grid grid-cols-2 gap-2">
-                {MECHANIC_TAGS.map(m => (
-                  <button key={m.key} className={`btn ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>
-                ))}
+                {MECHANIC_TAGS.map(m => (<button key={m.key} className={`btn ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
               </div>
               {limitNotice && <p className="text-xs" style={{ color: 'var(--warn)' }}>{limitNotice}</p>}
             </div>
-
             <div className="mt-4 space-y-3">
-              <div>
-                <label className="muted text-sm">Prioriser ma collection: {weightOwned.toFixed(1)}x</label>
-                <input type="range" min={0} max={2} step={0.1} value={weightOwned} onChange={e => setWeightOwned(Number(e.target.value))} className="w-full" />
-              </div>
-              <div>
-                <label className="muted text-sm">Prioriser EDHREC: {weightEdhrec.toFixed(1)}x</label>
-                <input type="range" min={0} max={2} step={0.1} value={weightEdhrec} onChange={e => setWeightEdhrec(Number(e.target.value))} className="w-full" />
-              </div>
+              <div><label className="muted text-sm">Prioriser ma collection: {weightOwned.toFixed(1)}x</label><input type="range" min={0} max={2} step={0.1} value={weightOwned} onChange={e => setWeightOwned(Number(e.target.value))} className="w-full" /></div>
+              <div><label className="muted text-sm">Prioriser EDHREC: {weightEdhrec.toFixed(1)}x</label><input type="range" min={0} max={2} step={0.1} value={weightEdhrec} onChange={e => setWeightEdhrec(Number(e.target.value))} className="w-full" /></div>
             </div>
-
-            <div className="mt-4">
-              <label className="muted text-sm">Nombre de terrains visé: {targetLands}</label>
-              <input type="range" min={32} max={40} step={1} value={targetLands} onChange={e => setTargetLands(Number(e.target.value))} className="w-full" />
-            </div>
-            <div className="mt-3">
-              <label className="muted text-sm">Budget global du deck (EUR)</label>
-              <input type="number" min={0} placeholder="0 = sans limite" value={deckBudget} onChange={e => setDeckBudget(Number(e.target.value || 0))} className="w-full input" />
-              <p className="text-xs muted mt-1">Prix EUR Scryfall; popularité EDHREC via edhrec_rank.</p>
-            </div>
-
-            <div className="mt-4 flex items-center justify-between">
-              <div className="space-y-1"><span>Autoriser Partner</span><p className="text-xs muted">N'influence pas la recherche ; ajoute un partenaire si possible.</p></div>
-              <input type="checkbox" checked={allowPartner} onChange={e => setAllowPartner(e.target.checked)} />
-            </div>
-            <div className="mt-2 flex items-center justify-between">
-              <div className="space-y-1"><span>Autoriser Background</span><p className="text-xs muted">Si le commandant le permet.</p></div>
-              <input type="checkbox" checked={allowBackground} onChange={e => setAllowBackground(e.target.checked)} />
-            </div>
-
-            {/* SECTION COLLECTION PERSONNELLE DÉPLACÉE ICI */}
+            <div className="mt-4"><label className="muted text-sm">Nombre de terrains visé: {targetLands}</label><input type="range" min={32} max={40} step={1} value={targetLands} onChange={e => setTargetLands(Number(e.target.value))} className="w-full" /></div>
+            <div className="mt-3"><label className="muted text-sm">Budget global du deck (EUR)</label><input type="number" min={0} placeholder="0 = sans limite" value={deckBudget} onChange={e => setDeckBudget(Number(e.target.value || 0))} className="w-full input" /><p className="text-xs muted mt-1">Prix EUR Scryfall; popularité EDHREC via edhrec_rank.</p></div>
+            <div className="mt-4 flex items-center justify-between"><div className="space-y-1"><span>Autoriser Partner</span><p className="text-xs muted">N'influence pas la recherche ; ajoute un partenaire si possible.</p></div><input type="checkbox" checked={allowPartner} onChange={e => setAllowPartner(e.target.checked)} /></div>
+            <div className="mt-2 flex items-center justify-between"><div className="space-y-1"><span>Autoriser Background</span><p className="text-xs muted">Si le commandant le permet.</p></div><input type="checkbox" checked={allowBackground} onChange={e => setAllowBackground(e.target.checked)} /></div>
             <hr className="my-6 border-white/10" />
             <div>
               <div className="flex items-center gap-2 mb-4"><Upload className="h-5 w-5"/><h2 className="font-medium">Collection personnelle (optionnel)</h2></div>
               <p className="text-sm muted">Importe un ou plusieurs fichiers pour prioriser tes cartes lors de la génération.</p>
               <div className="mt-3"><FileDrop onFiles={async (files)=>{ for(const f of files){ await handleCollectionFile(f); } }}/></div>
-              <div className="mt-3 text-sm">
-                {uploadedFiles.length>0 ? (
-                  <div className="space-y-2">
-                    <div className="muted text-xs">Fichiers importés ({uploadedFiles.length}) :</div>
-                    <ul className="grid md:grid-cols-2 gap-2">
-                      {uploadedFiles.map(f=> (
-                        <li key={f.id} className="flex items-center justify-between glass-strong rounded-lg px-3 py-1.5">
-                          <span className="truncate" title={f.name}>{f.name}</span>
-                          <button className="btn" onClick={()=>removeUploadedFile(f.id)} title="Supprimer ce fichier"><Trash2 className="h-4 w-4"/></button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : (<div className="muted">Aucun fichier importé pour l’instant.</div>)}
-              </div>
-              <div className="flex items-center justify-between mt-3">
-                <p>Cartes reconnues: <span className="font-semibold">{ownedMap.size}</span></p>
-                <button className="btn" onClick={clearCollection}>Réinitialiser</button>
-              </div>
+              <div className="mt-3 text-sm">{uploadedFiles.length>0 ? (<div className="space-y-2"><div className="muted text-xs">Fichiers importés ({uploadedFiles.length}) :</div><ul className="grid md:grid-cols-2 gap-2">{uploadedFiles.map(f=> (<li key={f.id} className="flex items-center justify-between glass-strong rounded-lg px-3 py-1.5"><span className="truncate" title={f.name}>{f.name}</span><button className="btn" onClick={()=>removeUploadedFile(f.id)} title="Supprimer ce fichier"><Trash2 className="h-4 w-4"/></button></li>))}</ul></div>) : (<div className="muted">Aucun fichier importé pour l’instant.</div>)}</div>
+              <div className="flex items-center justify-between mt-3"><p>Cartes reconnues: <span className="font-semibold">{ownedMap.size}</span></p><button className="btn" onClick={clearCollection}>Réinitialiser</button></div>
             </div>
-
-            <button className="mt-6 w-full btn-primary justify-center" disabled={loading} onClick={generate}>
-              {loading? (<RefreshCcw className="h-4 w-4 animate-spin"/>):(<Shuffle className="h-4 w-4"/>)} {loading?"Génération...":"Générer un deck"}
-            </button>
-
+            <button className="mt-6 w-full btn-primary justify-center" disabled={loading} onClick={generate}>{loading? (<RefreshCcw className="h-4 w-4 animate-spin"/>):(<Shuffle className="h-4 w-4"/>)} {loading?"Génération...":"Générer un deck"}</button>
             {error && <p className="text-sm mt-3" style={{color:'#ffb4c2'}}>{error}</p>}
-
-            <div className="text-xs muted flex items-start gap-2 mt-3">
-              <Info className="h-4 w-4 mt-0.5"/>
-              <p>Règles EDH respectées (100 cartes, singleton sauf bases, identité couleur, légalités). Budget heuristique glouton.</p>
-            </div>
+            <div className="text-xs muted flex items-start gap-2 mt-3"><Info className="h-4 w-4 mt-0.5"/><p>Règles EDH respectées (100 cartes, singleton sauf bases, identité couleur, légalités). Budget heuristique glouton.</p></div>
           </div>
-
-          {/* Right column */}
           <div className="lg:col-span-2 space-y-8">
-            {/* Editable balance targets */}
-            <div className="glass p-6">
-              <h3 className="font-medium mb-3">Cibles d’équilibrage (éditables)</h3>
-              <div className="grid md:grid-cols-2 gap-4 text-sm">
-                {["ramp","draw","removal","wraths"].map(cat=> (
-                  <div key={cat} className="flex items-center gap-2">
-                    <span className="w-28 capitalize">{cat}</span>
-                    <label className="text-xs muted">Min</label>
-                    <input type="number" className="w-16 input px-2 py-1" value={targets[cat].min} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], min:Number(e.target.value)||0}}))}/>
-                    <label className="text-xs muted">Max</label>
-                    <input type="number" className="w-16 input px-2 py-1" value={targets[cat].max} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], max:Number(e.target.value)||0}}))}/>
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs muted mt-2">L’algo vise le <b>min</b> comme plancher; le max est indicatif pour l’affichage.</p>
-            </div>
-
-            {/* Result */}
+            <div className="glass p-6"><h3 className="font-medium mb-3">Cibles d’équilibrage (éditables)</h3><div className="grid md:grid-cols-2 gap-4 text-sm">{["ramp","draw","removal","wraths"].map(cat=> (<div key={cat} className="flex items-center gap-2"><span className="w-28 capitalize">{cat}</span><label className="text-xs muted">Min</label><input type="number" className="w-16 input px-2 py-1" value={targets[cat].min} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], min:Number(e.target.value)||0}}))}/><label className="text-xs muted">Max</label><input type="number" className="w-16 input px-2 py-1" value={targets[cat].max} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], max:Number(e.target.value)||0}}))}/></div>))}<p className="text-xs muted mt-2">L’algo vise le <b>min</b> comme plancher; le max est indicatif pour l’affichage.</p></div>
             <div className="glass p-6">
               <div className="flex items-center gap-2 mb-4"><Sparkles className="h-5 w-5"/><h2 className="font-medium">Résultat</h2></div>
-              {!deck ? (
-                <div className="text-sm muted">Configure les options puis clique « Générer un deck ».</div>
-              ) : (
+              {!deck ? (<div className="text-sm muted">Configure les options puis clique « Générer un deck ».</div>) : (
                 <div className="space-y-6">
-                  {/* Commander(s) */}
                   <div ref={commanderSectionRef} className="section-anchor">
                     <h3 className="text-lg font-medium">Commandant{deck.commanders.length>1?'s':''} ({deck.commanders.length})</h3>
                     <div className="mt-2 grid md:grid-cols-2 gap-3">
                       {deck.commandersFull?.map((c,i)=> {
                         const owned = isOwned(c.name);
+                        const extraInfo = commandersExtraInfo[c.name];
                         return (
                           <div key={i} className="glass-strong rounded-lg p-3 flex gap-3">
-                            {c.small ? (
-                              <img src={c.small} alt={c.name} className="w-20 h-28 object-cover rounded cursor-pointer" onClick={()=>{setModalCard(c); setModalOwned(owned); setShowModal(true);}}/>
-                            ) : (<div className="w-20 h-28 glass-strong rounded"/>) }
+                            {c.small ? (<img src={c.small} alt={c.name} className="w-20 h-28 object-cover rounded cursor-pointer" onClick={()=>{setModalCard(c); setModalOwned(owned); setShowModal(true);}}/>) : (<div className="w-20 h-28 glass-strong rounded"/>) }
                             <div className="min-w-0">
-                              <button className="text-left font-medium hover:underline flex items-center gap-1" onClick={()=>{setModalCard(c); setModalOwned(owned); setShowModal(true);}}>
-                                <span className="truncate">{c.name}</span>
-                                {owned && (<span style={{color:'limegreen',fontWeight:'bold'}} title="Carte présente dans votre collection">✓</span>)}
-                              </button>
+                              <button className="text-left font-medium hover:underline flex items-center gap-1" onClick={()=>{setModalCard(c); setModalOwned(owned); setShowModal(true);}}><span className="truncate">{c.name}</span>{owned && (<span style={{color:'limegreen',fontWeight:'bold'}} title="Carte présente dans votre collection">✓</span>)}</button>
                               {c.mana_cost && <div className="text-xs muted mt-0.5"><ManaCost cost={c.mana_cost}/></div>}
-                              {c.oracle_en && (
-                                <div className="text-xs mt-1" style={{display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical', overflow:'hidden'}}>
-                                  {c.oracle_en}
-                                </div>
-                              )}
+                              <div className="text-xs mt-1" style={{display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden'}}>{c.oracle_en}</div>
                               <div className="text-xs muted mt-1">Prix estimé: {(Number(c.prices?.eur)||Number(c.prices?.eur_foil)||0).toFixed(2)}€</div>
+                              {/* AFFICHE LES DONNÉES EDHREC */}
+                              <div className="text-xs muted mt-1">
+                                {extraInfo?.deckCount ? `Présent dans ${extraInfo.deckCount.toLocaleString('fr-FR')} decks (EDHREC)` : (c.edhrec_rank ? `Rang EDHREC: ${c.edhrec_rank}` : 'Pas de données EDHREC')}
+                              </div>
                             </div>
                           </div>
                         );
@@ -353,103 +257,26 @@ export default function App() {
                     </div>
                     <p className="muted text-xs mt-1">Identité: {deck.colorIdentity || "(Colorless)"} • Taille: {deckSize} cartes • Coût estimé: {deck.spent?.toFixed(2)}€{deck.budget?` / Budget: ${deck.budget}€`:''}</p>
                   </div>
-
-                  {/* Balance indicators */}
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <Progress label="Ramp" value={deck.balanceCounts?.ramp||0} targetMin={targets.ramp.min} targetMax={targets.ramp.max}/>
-                    <Progress label="Pioche" value={deck.balanceCounts?.draw||0} targetMin={targets.draw.min} targetMax={targets.draw.max}/>
-                    <Progress label="Anti-bêtes / Answers" value={deck.balanceCounts?.removal||0} targetMin={targets.removal.min} targetMax={targets.removal.max}/>
-                    <Progress label="Wraths" value={deck.balanceCounts?.wraths||0} targetMin={targets.wraths.min} targetMax={targets.wraths.max}/>
-                  </div>
-
-                  {/* Non-land spells grouped by primary type */}
+                  <div className="grid md:grid-cols-2 gap-4"><Progress label="Ramp" value={deck.balanceCounts?.ramp||0} targetMin={targets.ramp.min} targetMax={targets.ramp.max}/><Progress label="Pioche" value={deck.balanceCounts?.draw||0} targetMin={targets.draw.min} targetMax={targets.draw.max}/><Progress label="Anti-bêtes / Answers" value={deck.balanceCounts?.removal||0} targetMin={targets.removal.min} targetMax={targets.removal.max}/><Progress label="Wraths" value={deck.balanceCounts?.wraths||0} targetMin={targets.wraths.min} targetMax={targets.wraths.max}/></div>
                   <div>
                     <h3 className="text-lg font-medium">Sorts non-terrains ({Object.values(deck.nonlands).reduce((a,b)=>a+b,0)})</h3>
-                    {Object.keys(nonlandsByType).length===0 ? (
-                      <p className="text-sm muted mt-1">Aucun sort détecté.</p>
-                    ) : (
-                      <div className="space-y-4 mt-2">
-                        {Object.entries(nonlandsByType).map(([label, cards])=> (
-                          <div key={label}>
-                            <h4 className="text-sm muted mb-2">{label} ({cards.length})</h4>
-                            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                              {cards.map((c,idx)=> {
-                                const owned = isOwned(c.name);
-                                return (
-                                  <CardTile key={c.name+idx} card={c} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    {Object.keys(nonlandsByType).length===0 ? (<p className="text-sm muted mt-1">Aucun sort détecté.</p>) : (<div className="space-y-4 mt-2">{Object.entries(nonlandsByType).map(([label, cards])=> (<div key={label}><h4 className="text-sm muted mb-2">{label} ({cards.length})</h4><div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{cards.map((c,idx)=> { const owned = isOwned(c.name); return (<CardTile key={c.name+idx} card={c} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>); })}</div></div>))}</div>)}
                   </div>
-
-                  {/* Lands as tiles (with modal) */}
                   <div>
                     <h3 className="text-lg font-medium">Terrains ({Object.values(deck.lands).reduce((a,b)=>a+b,0)})</h3>
-                    {Array.isArray(deck.landCards) && deck.landCards.length>0 ? (
-                      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">
-                        {deck.landCards.map((lc,idx)=> {
-                          const owned = isOwned(lc.name);
-                          return (
-                            <CardTile key={lc.name+idx} card={lc} qty={lc.qty} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <div className="grid md:grid-cols-2 gap-2 mt-2 text-sm">
-                        {Object.entries(deck.lands).map(([n,q]) => (
-                          <div key={n} className="flex justify-between glass-strong rounded-lg px-3 py-1.5"><span>{n}</span><span className="muted">x{q}</span></div>
-                        ))}
-                      </div>
-                    )}
+                    {Array.isArray(deck.landCards) && deck.landCards.length>0 ? (<div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">{deck.landCards.map((lc,idx)=> { const owned = isOwned(lc.name); return (<CardTile key={lc.name+idx} card={lc} qty={lc.qty} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>); })}</div>) : (<div className="grid md:grid-cols-2 gap-2 mt-2 text-sm">{Object.entries(deck.lands).map(([n,q]) => (<div key={n} className="flex justify-between glass-strong rounded-lg px-3 py-1.5"><span>{n}</span><span className="muted">x{q}</span></div>))}</div>)}
                   </div>
-
-                  {/* Statistics */}
                   <div className="glass-strong rounded-xl p-4">
                     <h3 className="font-medium mb-3">Statistiques</h3>
-                    {stats ? (
-                      <div className="grid md:grid-cols-3 gap-3 text-sm">
-                        <div className="glass rounded-lg p-3">
-                          <div className="muted text-xs">Cartes possédées utilisées</div>
-                          <div className="text-lg font-semibold">{stats.ownedCount} / {deckSize} <span className="text-xs muted">({stats.ownedPct}%)</span></div>
-                        </div>
-                        <div className="glass rounded-lg p-3">
-                          <div className="muted text-xs">Coût estimé du deck</div>
-                          <div className="text-lg font-semibold">{(deck.spent||0).toFixed(2)}€</div>
-                        </div>
-                        <div className="glass rounded-lg p-3">
-                          <div className="muted text-xs">CMC moyen (hors terrains)</div>
-                          <div className="text-lg font-semibold">{stats.avgCmc}</div>
-                        </div>
-                        <div className="md:col-span-3 grid md:grid-cols-4 gap-2">
-                          {Object.entries(stats.typeCounts).map(([k,v])=> (
-                            <div key={k} className="glass rounded-lg p-3 flex items-center justify-between"><span className="muted text-xs">{k}</span><span className="font-medium">{v}</span></div>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="muted text-sm">Aucune statistique (génère un deck d'abord).</div>
-                    )}
+                    {stats ? (<div className="grid md:grid-cols-3 gap-3 text-sm"><div className="glass rounded-lg p-3"><div className="muted text-xs">Cartes possédées utilisées</div><div className="text-lg font-semibold">{stats.ownedCount} / {deckSize} <span className="text-xs muted">({stats.ownedPct}%)</span></div></div><div className="glass rounded-lg p-3"><div className="muted text-xs">Coût estimé du deck</div><div className="text-lg font-semibold">{(deck.spent||0).toFixed(2)}€</div></div><div className="glass rounded-lg p-3"><div className="muted text-xs">CMC moyen (hors terrains)</div><div className="text-lg font-semibold">{stats.avgCmc}</div></div><div className="md:col-span-3 grid md:grid-cols-4 gap-2">{Object.entries(stats.typeCounts).map(([k,v])=> (<div key={k} className="glass rounded-lg p-3 flex items-center justify-between"><span className="muted text-xs">{k}</span><span className="font-medium">{v}</span></div>))}</div></div>) : (<div className="muted text-sm">Aucune statistique (génère un deck d'abord).</div>)}
                   </div>
-
-                  {/* Bottom actions: stack on mobile for consistency */}
-                  <div className="grid grid-cols-1 lg:flex lg:flex-wrap lg:gap-2 gap-2">
-                    <button className="btn" onClick={copyList}><Copy className="inline-block h-4 w-4"/>Copier</button>
-                    <button className="btn" onClick={exportJson}><Download className="inline-block h-4 w-4"/>JSON</button>
-                    <button className="btn-primary" onClick={exportTxt}><Download className="inline-block h-4 w-4"/>TXT</button>
-                    <button className="btn" onClick={reequilibrer} disabled={loading}><Sparkles className="inline-block h-4 w-4"/>Rééquilibrer</button>
-                  </div>
+                  <div className="grid grid-cols-1 lg:flex lg:flex-wrap lg:gap-2 gap-2"><button className="btn" onClick={copyList}><Copy className="inline-block h-4 w-4"/>Copier</button><button className="btn" onClick={exportJson}><Download className="inline-block h-4 w-4"/>JSON</button><button className="btn-primary" onClick={exportTxt}><Download className="inline-block h-4 w-4"/>TXT</button><button className="btn" onClick={reequilibrer} disabled={loading}><Sparkles className="inline-block h-4 w-4"/>Rééquilibrer</button></div>
                 </div>
               )}
             </div>
           </div>
         </div>
-
         <CardModal open={showModal} card={modalCard} owned={modalOwned} onClose={() => setShowModal(false)} />
-
         <footer className="mt-10 text-xs muted">Fait avec ❤️ — Scryfall API (popularité EDHREC via <code>edhrec_rank</code>). Non affilié à WotC.</footer>
       </div>
     </div>
