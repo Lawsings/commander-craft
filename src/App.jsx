@@ -17,7 +17,7 @@ import Progress from './components/Progress.jsx';
 import CardTile from './components/CardTile.jsx';
 import CardModal from './components/CardModal.jsx';
 
-// Nouveau composant pour la modale de progression
+// Composant pour la modale de progression
 const GenerationModal = ({ progress }) => (
   <div className="generation-modal-overlay">
     <div className="generation-modal-content">
@@ -100,18 +100,26 @@ export default function App() {
     const landsQ = `${base} type:land -type:basic`;
 
     const gather = async (q, b, pages = 2) => {
-      let page = await sf.search(q, { unique: "cards", order: "random" });
-      b.push(...page.data);
-      for (let i = 1; i < pages && page.has_more; i++) {
+      // On utilise l'option `order: "edhrec"` pour les sorts pour avoir les plus pertinents en premier
+      // et `order: "cmc"` pour les terrains pour avoir les plus efficaces.
+      const order = q.includes("-type:land") ? "edhrec" : "cmc";
+      let page = await sf.search(q, { unique: "cards", order: order });
+      if (page && page.data) b.push(...page.data);
+      for (let i = 1; i < pages && page && page.has_more; i++) {
         await sleep(100);
-        page = await fetch(page.next_page).then(r => r.json());
-        b.push(...page.data);
+        const nextPageResponse = await fetch(page.next_page);
+        if (nextPageResponse.ok) {
+            page = await nextPageResponse.json();
+            if (page && page.data) b.push(...page.data);
+        } else {
+            break; // Stop if there is an error fetching next page
+        }
       }
     };
 
     const spells = [], lands = [];
-    await gather(spellsQ, spells, 2);
-    await gather(landsQ, lands, 1);
+    await gather(spellsQ, spells, 4); // Fetch more pages for spells
+    await gather(landsQ, lands, 2);
     return {
       spells: distinctByName(spells).filter(isCommanderLegal),
       lands: distinctByName(lands).filter(isCommanderLegal)
@@ -161,23 +169,19 @@ export default function App() {
           setCommandersExtraInfo(newExtraInfo);
       });
 
-      setGenerationProgress({ active: true, step: 'Recherche des cartes...', percent: 40 });
+      setGenerationProgress({ active: true, step: 'Recherche des cartes...', percent: 25 });
       const pool = await fetchPool(ci);
 
-      const initialLandsTarget = Math.max(32, Math.min(40, targetLands));
-      const spellsTarget = 100 - cmdrs.length - initialLandsTarget;
-
-      if (pool.spells.length < spellsTarget) {
-        throw new Error("Pas assez de cartes trouvées pour construire un deck. Essayez des paramètres moins restrictifs.");
-      }
-      
       const totalBudget = Number(deckBudget) || 0;
       let spent = cmdrs.reduce((s, c) => s + priceEUR(c), 0);
       if (totalBudget > 0 && spent > totalBudget) {
         throw new Error(`Le budget (${totalBudget.toFixed(2)}€) est déjà dépassé par le coût des commandants (${spent.toFixed(2)}€).`);
       }
 
-      setGenerationProgress({ active: true, step: 'Sélection des sorts...', percent: 60 });
+      const initialLandsTarget = Math.max(32, Math.min(40, targetLands));
+      const spellsTarget = 100 - cmdrs.length - initialLandsTarget;
+
+      setGenerationProgress({ active: true, step: 'Sélection des sorts...', percent: 50 });
       const spellsPref = sortByPreference(pool.spells);
       const banned = new Set(cmdrs.map(nameOf));
       let { picks: pickedSpells, cost: costAfterSpells } = greedyPickUnique(spellsPref, spellsTarget, banned, spent, totalBudget);
@@ -192,7 +196,8 @@ export default function App() {
 
       setGenerationProgress({ active: true, step: 'Construction de la base de mana...', percent: 90 });
       const landsPref = sortByPreference(pool.lands);
-      const nonBasicsTarget = Math.min(10, Math.max(8, Math.floor(finalLandsCount / 3.5)));
+      
+      const nonBasicsTarget = Math.min(12, Math.max(8, Math.floor(finalLandsCount / 3)));
       const chosenNonbasics = [];
       for (const nb of landsPref) {
         if (chosenNonbasics.length >= nonBasicsTarget) break;
@@ -203,6 +208,10 @@ export default function App() {
       }
       
       const basicsNeeded = finalLandsCount - chosenNonbasics.length;
+      if (basicsNeeded < 0) {
+        // Should not happen with this logic, but as a safeguard
+        throw new Error("Erreur de calcul de la base de mana.");
+      }
       const landsMap = buildManaBase(ci, basicsNeeded);
       for (const nb of chosenNonbasics) {
         landsMap[nameOf(nb)] = (landsMap[nameOf(nb)] || 0) + 1;
