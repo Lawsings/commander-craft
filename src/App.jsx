@@ -1,20 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCcw, Shuffle, Copy, Download, Upload, Settings2, Info, Sparkles, Trash2, Sun, Moon } from "lucide-react";
 
-// Import des modules séparés
-import './index.css';
+// Import des modules séparés avec leurs extensions de fichier
+import './App.css';
 import {
   COLORS, MECHANIC_TAGS, RE, sleep, ciMask, identityToQuery, nameOf, oracle,
   isCommanderLegal, getCI, unionCI, priceEUR, edhrecScore, distinctByName,
   sf, bundleCard, bundleByName, primaryTypeLabel, parseCollectionFile
-} from './utils';
-import { useCommanderResolution } from './hooks';
-import ManaCost from './components/ManaCost';
-import CommanderAutocomplete from './components/CommanderAutocomplete';
-import FileDrop from './components/FileDrop';
-import Progress from './components/Progress';
-import CardTile from './components/CardTile';
-import CardModal from './components/CardModal';
+} from './utils.js';
+import { useCommanderResolution } from './hooks.js';
+import ManaCost from './components/ManaCost.jsx';
+import CommanderAutocomplete from './components/CommanderAutocomplete.jsx';
+import FileDrop from './components/FileDrop.jsx';
+import Progress from './components/Progress.jsx';
+import CardTile from './components/CardTile.jsx';
+import CardModal from './components/CardModal.jsx';
 
 
 export default function App() {
