@@ -7,7 +7,7 @@ import {
   MECHANIC_TAGS, RE, sleep, ciMask, identityToQuery, nameOf, oracle,
   isCommanderLegal, getCI, unionCI, priceEUR, edhrecScore, distinctByName,
   sf, bundleCard, bundleByName, primaryTypeLabel, parseCollectionFile,
-  fetchCommanderDeckCount // Nouvelle fonction importée
+  fetchCommanderDeckCount
 } from './utils.js';
 import { useCommanderResolution } from './hooks.js';
 import ManaCost from './components/ManaCost.jsx';
@@ -55,7 +55,6 @@ export default function App() {
   const [showModal, setShowModal] = useState(false);
   const [modalCard, setModalCard] = useState(null);
   const [modalOwned, setModalOwned] = useState(false);
-  // NOUVEL ÉTAT pour les données EDHREC
   const [commandersExtraInfo, setCommandersExtraInfo] = useState({});
 
   const commanderSectionRef = useRef(null);
@@ -171,118 +170,137 @@ export default function App() {
           </div>
         </header>
 
-        <div className="grid lg:grid-cols-3 gap-8 mt-8">
-          <div className="glass p-6 lg:col-span-1">
+        <div className="grid grid-cols-1 gap-8 mt-8">
+          {/* Section Paramètres */}
+          <div className="glass p-6">
             <div className="flex items-center gap-2 mb-4"><Settings2 className="h-5 w-5" /><h2 className="font-medium">Paramètres</h2></div>
-            <div className="space-y-2">
-              <span className="muted text-sm">Commandant</span>
-              <div className="flex gap-2 flex-wrap">
-                <button className={`btn ${commanderMode === 'random' ? 'glass-strong' : ''}`} onClick={() => { setCommanderMode('random'); setChosenCommander(""); }}>Aléatoire</button>
-                <button className={`btn ${commanderMode === 'select' ? 'glass-strong' : ''}`} onClick={() => setCommanderMode('select')}>Sélectionner</button>
-              </div>
-              {commanderMode === 'select' && (
-                <div className="mt-2">
-                  <CommanderAutocomplete value={chosenCommander} onSelect={setChosenCommander} />
-                  {selectedCommanderCard && (<p className="text-xs muted mt-1">Sélectionné: <span className="text-card-foreground">{nameOf(selectedCommanderCard)}</span> • Identité: {getCI(selectedCommanderCard)}</p>)}
-                </div>
-              )}
-            </div>
-            {commanderMode !== 'select' && (
-              <div className="mt-4">
-                <span className="muted text-sm">Identité couleur (optionnel)</span>
-                <div className="flex gap-2 mt-2 flex-wrap items-center">
-                  <button className="btn p-2.5" onClick={() => setDesiredCI("")} title="Aucune couleur (Réinitialiser)">
-                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
-                  </button>
-                  {IDENTITY_COLOR_ORDER.map(c => (<button key={c} className={`btn p-2 ${desiredCI.includes(c) ? 'glass-strong' : ''}`} onClick={() => { const set = new Set(desiredCI.split("")); set.has(c) ? set.delete(c) : set.add(c); setDesiredCI(ciMask(Array.from(set).join(""))); }}><img src={`https://svgs.scryfall.io/card-symbols/${c}.svg`} alt={c} style={{ width: '24px', height: '24px', display: 'block' }} /></button>))}
-                </div>
-              </div>
-            )}
-            <div className="mt-4">
-              <span className="muted text-sm">Mécaniques préférées (max 3)</span>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {MECHANIC_TAGS.map(m => (<button key={m.key} className={`btn ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
-              </div>
-              {limitNotice && <p className="text-xs" style={{ color: 'var(--warn)' }}>{limitNotice}</p>}
-            </div>
-            <div className="mt-4 space-y-3">
-              <div><label className="muted text-sm">Prioriser ma collection: {weightOwned.toFixed(1)}x</label><input type="range" min={0} max={2} step={0.1} value={weightOwned} onChange={e => setWeightOwned(Number(e.target.value))} className="w-full" /></div>
-              <div><label className="muted text-sm">Prioriser EDHREC: {weightEdhrec.toFixed(1)}x</label><input type="range" min={0} max={2} step={0.1} value={weightEdhrec} onChange={e => setWeightEdhrec(Number(e.target.value))} className="w-full" /></div>
-            </div>
-            <div className="mt-4"><label className="muted text-sm">Nombre de terrains visé: {targetLands}</label><input type="range" min={32} max={40} step={1} value={targetLands} onChange={e => setTargetLands(Number(e.target.value))} className="w-full" /></div>
-            <div className="mt-3"><label className="muted text-sm">Budget global du deck (EUR)</label><input type="number" min={0} placeholder="0 = sans limite" value={deckBudget} onChange={e => setDeckBudget(Number(e.target.value || 0))} className="w-full input" /><p className="text-xs muted mt-1">Prix EUR Scryfall; popularité EDHREC via edhrec_rank.</p></div>
-            <div className="mt-4 flex items-center justify-between"><div className="space-y-1"><span>Autoriser Partner</span><p className="text-xs muted">N'influence pas la recherche ; ajoute un partenaire si possible.</p></div><input type="checkbox" checked={allowPartner} onChange={e => setAllowPartner(e.target.checked)} /></div>
-            <div className="mt-2 flex items-center justify-between"><div className="space-y-1"><span>Autoriser Background</span><p className="text-xs muted">Si le commandant le permet.</p></div><input type="checkbox" checked={allowBackground} onChange={e => setAllowBackground(e.target.checked)} /></div>
-            <hr className="my-6 border-white/10" />
-            <div>
-              <div className="flex items-center gap-2 mb-4"><Upload className="h-5 w-5"/><h2 className="font-medium">Collection personnelle (optionnel)</h2></div>
-              <p className="text-sm muted">Importe un ou plusieurs fichiers pour prioriser tes cartes lors de la génération.</p>
-              <div className="mt-3"><FileDrop onFiles={async (files)=>{ for(const f of files){ await handleCollectionFile(f); } }}/></div>
-              <div className="mt-3 text-sm">{uploadedFiles.length>0 ? (<div className="space-y-2"><div className="muted text-xs">Fichiers importés ({uploadedFiles.length}) :</div><ul className="grid md:grid-cols-2 gap-2">{uploadedFiles.map(f=> (<li key={f.id} className="flex items-center justify-between glass-strong rounded-lg px-3 py-1.5"><span className="truncate" title={f.name}>{f.name}</span><button className="btn" onClick={()=>removeUploadedFile(f.id)} title="Supprimer ce fichier"><Trash2 className="h-4 w-4"/></button></li>))}</ul></div>) : (<div className="muted">Aucun fichier importé pour l’instant.</div>)}</div>
-              <div className="flex items-center justify-between mt-3"><p>Cartes reconnues: <span className="font-semibold">{ownedMap.size}</span></p><button className="btn" onClick={clearCollection}>Réinitialiser</button></div>
-            </div>
-            <button className="mt-6 w-full btn-primary justify-center" disabled={loading} onClick={generate}>{loading? (<RefreshCcw className="h-4 w-4 animate-spin"/>):(<Shuffle className="h-4 w-4"/>)} {loading?"Génération...":"Générer un deck"}</button>
-            {error && <p className="text-sm mt-3" style={{color:'#ffb4c2'}}>{error}</p>}
-            <div className="text-xs muted flex items-start gap-2 mt-3"><Info className="h-4 w-4 mt-0.5"/><p>Règles EDH respectées (100 cartes, singleton sauf bases, identité couleur, légalités). Budget heuristique glouton.</p></div>
-          </div>
-          <div className="lg:col-span-2 space-y-8">
-            <div className="glass p-6">
-              <h3 className="font-medium mb-3">Cibles d’équilibrage (éditables)</h3>
-              <div className="grid md:grid-cols-2 gap-4 text-sm">
-                {["ramp","draw","removal","wraths"].map(cat=> (
-                  <div key={cat} className="flex items-center gap-2">
-                    <span className="w-28 capitalize">{cat}</span>
-                    <label className="text-xs muted">Min</label>
-                    <input type="number" className="w-16 input px-2 py-1" value={targets[cat].min} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], min:Number(e.target.value)||0}}))}/>
-                    <label className="text-xs muted">Max</label>
-                    <input type="number" className="w-16 input px-2 py-1" value={targets[cat].max} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], max:Number(e.target.value)||0}}))}/>
+
+            {/* Grille pour la mise en page desktop */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-x-8 gap-y-4">
+              {/* Colonne 1 */}
+              <div className="flex flex-col space-y-4">
+                <div className="space-y-2">
+                  <span className="muted text-sm">Commandant</span>
+                  <div className="flex gap-2 flex-wrap">
+                    <button className={`btn ${commanderMode === 'random' ? 'glass-strong' : ''}`} onClick={() => { setCommanderMode('random'); setChosenCommander(""); }}>Aléatoire</button>
+                    <button className={`btn ${commanderMode === 'select' ? 'glass-strong' : ''}`} onClick={() => setCommanderMode('select')}>Sélectionner</button>
                   </div>
-                ))}
+                  {commanderMode === 'select' && (
+                    <div className="mt-2">
+                      <CommanderAutocomplete value={chosenCommander} onSelect={setChosenCommander} />
+                      {selectedCommanderCard && (<p className="text-xs muted mt-1">Sélectionné: <span className="text-card-foreground">{nameOf(selectedCommanderCard)}</span> • Identité: {getCI(selectedCommanderCard)}</p>)}
+                    </div>
+                  )}
+                </div>
+                {commanderMode !== 'select' && (
+                  <div>
+                    <span className="muted text-sm">Identité couleur (optionnel)</span>
+                    <div className="flex gap-2 mt-2 flex-wrap items-center">
+                      <button className="btn p-2.5" onClick={() => setDesiredCI("")} title="Aucune couleur (Réinitialiser)">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/></svg>
+                      </button>
+                      {IDENTITY_COLOR_ORDER.map(c => (<button key={c} className={`btn p-2 ${desiredCI.includes(c) ? 'glass-strong' : ''}`} onClick={() => { const set = new Set(desiredCI.split("")); set.has(c) ? set.delete(c) : set.add(c); setDesiredCI(ciMask(Array.from(set).join(""))); }}><img src={`https://svgs.scryfall.io/card-symbols/${c}.svg`} alt={c} style={{ width: '24px', height: '24px', display: 'block' }} /></button>))}
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <span className="muted text-sm">Mécaniques préférées (max 3)</span>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    {MECHANIC_TAGS.map(m => (<button key={m.key} className={`btn ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
+                  </div>
+                  {limitNotice && <p className="text-xs" style={{ color: 'var(--warn)' }}>{limitNotice}</p>}
+                </div>
               </div>
-              <p className="text-xs muted mt-2">L’algo vise le <b>min</b> comme plancher; le max est indicatif pour l’affichage.</p>
+
+              {/* Colonne 2 */}
+              <div className="flex flex-col space-y-4">
+                <div className="space-y-3">
+                  <div><label className="muted text-sm">Prioriser ma collection: {weightOwned.toFixed(1)}x</label><input type="range" min={0} max={2} step={0.1} value={weightOwned} onChange={e => setWeightOwned(Number(e.target.value))} className="w-full" /></div>
+                  <div><label className="muted text-sm">Prioriser EDHREC: {weightEdhrec.toFixed(1)}x</label><input type="range" min={0} max={2} step={0.1} value={weightEdhrec} onChange={e => setWeightEdhrec(Number(e.target.value))} className="w-full" /></div>
+                </div>
+                <div><label className="muted text-sm">Nombre de terrains visé: {targetLands}</label><input type="range" min={32} max={40} step={1} value={targetLands} onChange={e => setTargetLands(Number(e.target.value))} className="w-full" /></div>
+                <div><label className="muted text-sm">Budget global du deck (EUR)</label><input type="number" min={0} placeholder="0 = sans limite" value={deckBudget} onChange={e => setDeckBudget(Number(e.target.value || 0))} className="w-full input" /><p className="text-xs muted mt-1">Prix EUR Scryfall; popularité EDHREC via edhrec_rank.</p></div>
+                <div className="flex items-center justify-between"><div className="space-y-1"><span>Autoriser Partner</span><p className="text-xs muted">N'influence pas la recherche ; ajoute un partenaire si possible.</p></div><input type="checkbox" checked={allowPartner} onChange={e => setAllowPartner(e.target.checked)} /></div>
+                <div className="flex items-center justify-between"><div className="space-y-1"><span>Autoriser Background</span><p className="text-xs muted">Si le commandant le permet.</p></div><input type="checkbox" checked={allowBackground} onChange={e => setAllowBackground(e.target.checked)} /></div>
+              </div>
+
+              {/* Colonne 3 */}
+              <div className="flex flex-col space-y-4">
+                <div>
+                  <div className="flex items-center gap-2 mb-4"><Upload className="h-5 w-5"/><h2 className="font-medium">Collection personnelle (optionnel)</h2></div>
+                  <p className="text-sm muted">Importe un ou plusieurs fichiers pour prioriser tes cartes lors de la génération.</p>
+                  <div className="mt-3"><FileDrop onFiles={async (files)=>{ for(const f of files){ await handleCollectionFile(f); } }}/></div>
+                  <div className="mt-3 text-sm">{uploadedFiles.length>0 ? (<div className="space-y-2"><div className="muted text-xs">Fichiers importés ({uploadedFiles.length}) :</div><ul className="grid grid-cols-1 gap-2">{uploadedFiles.map(f=> (<li key={f.id} className="flex items-center justify-between glass-strong rounded-lg px-3 py-1.5"><span className="truncate" title={f.name}>{f.name}</span><button className="btn p-1.5" onClick={()=>removeUploadedFile(f.id)} title="Supprimer ce fichier"><Trash2 className="h-4 w-4"/></button></li>))}</ul></div>) : (<div className="muted">Aucun fichier importé pour l’instant.</div>)}</div>
+                  <div className="flex items-center justify-between mt-3"><p>Cartes reconnues: <span className="font-semibold">{ownedMap.size}</span></p><button className="btn" onClick={clearCollection}>Réinitialiser</button></div>
+                </div>
+              </div>
             </div>
+
+            {/* Actions principales */}
+            <hr className="my-6 border-white/20" />
+            <button className="w-full btn-primary justify-center" disabled={loading} onClick={generate}>{loading? (<RefreshCcw className="h-4 w-4 animate-spin"/>):(<Shuffle className="h-4 w-4"/>)} {loading?"Génération...":"Générer un deck"}</button>
+            {error && <p className="text-sm mt-3 text-center" style={{color:'#ffb4c2'}}>{error}</p>}
+            <div className="text-xs muted flex items-start gap-2 mt-3"><Info className="h-4 w-4 mt-0.5 flex-shrink-0"/><p>Règles EDH respectées (100 cartes, singleton sauf bases, identité couleur, légalités). Budget heuristique glouton.</p></div>
+          </div>
+
+          {/* Colonne des résultats */}
+          <div className="space-y-8">
+            <div className="glass p-6"><h3 className="font-medium mb-3">Cibles d’équilibrage (éditables)</h3><div className="grid md:grid-cols-2 gap-4 text-sm">{["ramp","draw","removal","wraths"].map(cat=> (<div key={cat} className="flex items-center gap-2"><span className="w-28 capitalize">{cat}</span><label className="text-xs muted">Min</label><input type="number" className="w-16 input px-2 py-1" value={targets[cat].min} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], min:Number(e.target.value)||0}}))}/><label className="text-xs muted">Max</label><input type="number" className="w-16 input px-2 py-1" value={targets[cat].max} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], max:Number(e.target.value)||0}}))}/></div>))}<p className="text-xs muted mt-2">L’algo vise le <b>min</b> comme plancher; le max est indicatif pour l’affichage.</p></div>
             <div className="glass p-6">
               <div className="flex items-center gap-2 mb-4"><Sparkles className="h-5 w-5"/><h2 className="font-medium">Résultat</h2></div>
               {!deck ? (<div className="text-sm muted">Configure les options puis clique « Générer un deck ».</div>) : (
                 <div className="space-y-6">
+                  {/* Section Statistiques (déplacée en haut) */}
+                  <div className="glass-strong rounded-xl p-4">
+                    <h3 className="font-medium mb-3">Statistiques</h3>
+                    <div className="space-y-3">
+                      {stats ? (
+                        <div className="grid md:grid-cols-3 gap-3 text-sm">
+                          <div className="glass rounded-lg p-3"><div className="muted text-xs">Cartes possédées</div><div className="text-lg font-semibold">{stats.ownedCount} / {deckSize} <span className="text-xs muted">({stats.ownedPct}%)</span></div></div>
+                          <div className="glass rounded-lg p-3"><div className="muted text-xs">Coût estimé</div><div className="text-lg font-semibold">{(deck.spent||0).toFixed(2)}€</div></div>
+                          <div className="glass rounded-lg p-3"><div className="muted text-xs">CMC moyen</div><div className="text-lg font-semibold">{stats.avgCmc}</div></div>
+                          <div className="md:col-span-3 grid md:grid-cols-4 gap-2">{Object.entries(stats.typeCounts).map(([k,v])=> (<div key={k} className="glass rounded-lg p-3 flex items-center justify-between"><span className="muted text-xs">{k}</span><span className="font-medium">{v}</span></div>))}</div>
+                        </div>
+                      ) : (<div className="muted text-sm">Aucune statistique.</div>)}
+
+                      {/* Infos générales et popularité du commandant */}
+                      <div className="glass rounded-lg p-3 text-sm space-y-1">
+                        <p><span className="muted">Identité:</span> {deck.colorIdentity || "(Colorless)"} • <span className="muted">Taille:</span> {deckSize} cartes • <span className="muted">Budget:</span> {deck.budget ? `${deck.budget}€` : 'Aucun'}</p>
+                        {deck.commandersFull.map(c => {
+                          const extraInfo = commandersExtraInfo[c.name];
+                          if (extraInfo && extraInfo.deckCount) {
+                            return <p key={c.name} className="text-xs muted"><b>{c.name}</b> est joué dans {extraInfo.deckCount.toLocaleString('fr-FR')} decks (EDHREC).</p>
+                          }
+                          return null;
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Section Commandant */}
                   <div ref={commanderSectionRef} className="section-anchor">
                     <h3 className="text-lg font-medium">Commandant{deck.commanders.length>1?'s':''} ({deck.commanders.length})</h3>
                     <div className="mt-2 grid md:grid-cols-2 gap-3">
                       {deck.commandersFull?.map((c,i)=> {
                         const owned = isOwned(c.name);
-                        const extraInfo = commandersExtraInfo[c.name];
                         return (
                           <div key={i} className="glass-strong rounded-lg p-3 flex gap-3">
                             {c.small ? (<img src={c.small} alt={c.name} className="w-20 h-28 object-cover rounded cursor-pointer" onClick={()=>{setModalCard(c); setModalOwned(owned); setShowModal(true);}}/>) : (<div className="w-20 h-28 glass-strong rounded"/>) }
                             <div className="min-w-0">
                               <button className="text-left font-medium hover:underline flex items-center gap-1" onClick={()=>{setModalCard(c); setModalOwned(owned); setShowModal(true);}}><span className="truncate">{c.name}</span>{owned && (<span style={{color:'limegreen',fontWeight:'bold'}} title="Carte présente dans votre collection">✓</span>)}</button>
                               {c.mana_cost && <div className="text-xs muted mt-0.5"><ManaCost cost={c.mana_cost}/></div>}
-                              <div className="text-xs mt-1" style={{display:'-webkit-box', WebkitLineClamp:2, WebkitBoxOrient:'vertical', overflow:'hidden'}}>{c.oracle_en}</div>
+                              <div className="text-xs mt-1" style={{display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical', overflow:'hidden'}}>{c.oracle_en}</div>
                               <div className="text-xs muted mt-1">Prix estimé: {(Number(c.prices?.eur)||Number(c.prices?.eur_foil)||0).toFixed(2)}€</div>
-                              {/* AFFICHE LES DONNÉES EDHREC */}
-                              <div className="text-xs muted mt-1">
-                                {extraInfo?.deckCount ? `Présent dans ${extraInfo.deckCount.toLocaleString('fr-FR')} decks (EDHREC)` : (c.edhrec_rank ? `Rang EDHREC: ${c.edhrec_rank}` : 'Pas de données EDHREC')}
-                              </div>
                             </div>
                           </div>
                         );
                       })}
                     </div>
-                    <p className="muted text-xs mt-1">Identité: {deck.colorIdentity || "(Colorless)"} • Taille: {deckSize} cartes • Coût estimé: {deck.spent?.toFixed(2)}€{deck.budget?` / Budget: ${deck.budget}€`:''}</p>
                   </div>
+
                   <div className="grid md:grid-cols-2 gap-4"><Progress label="Ramp" value={deck.balanceCounts?.ramp||0} targetMin={targets.ramp.min} targetMax={targets.ramp.max}/><Progress label="Pioche" value={deck.balanceCounts?.draw||0} targetMin={targets.draw.min} targetMax={targets.draw.max}/><Progress label="Anti-bêtes / Answers" value={deck.balanceCounts?.removal||0} targetMin={targets.removal.min} targetMax={targets.removal.max}/><Progress label="Wraths" value={deck.balanceCounts?.wraths||0} targetMin={targets.wraths.min} targetMax={targets.wraths.max}/></div>
-                  <div>
-                    <h3 className="text-lg font-medium">Sorts non-terrains ({Object.values(deck.nonlands).reduce((a,b)=>a+b,0)})</h3>
-                    {Object.keys(nonlandsByType).length===0 ? (<p className="text-sm muted mt-1">Aucun sort détecté.</p>) : (<div className="space-y-4 mt-2">{Object.entries(nonlandsByType).map(([label, cards])=> (<div key={label}><h4 className="text-sm muted mb-2">{label} ({cards.length})</h4><div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{cards.map((c,idx)=> { const owned = isOwned(c.name); return (<CardTile key={c.name+idx} card={c} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>); })}</div></div>))}</div>)}
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-medium">Terrains ({Object.values(deck.lands).reduce((a,b)=>a+b,0)})</h3>
-                    {Array.isArray(deck.landCards) && deck.landCards.length>0 ? (<div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">{deck.landCards.map((lc,idx)=> { const owned = isOwned(lc.name); return (<CardTile key={lc.name+idx} card={lc} qty={lc.qty} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>); })}</div>) : (<div className="grid md:grid-cols-2 gap-2 mt-2 text-sm">{Object.entries(deck.lands).map(([n,q]) => (<div key={n} className="flex justify-between glass-strong rounded-lg px-3 py-1.5"><span>{n}</span><span className="muted">x{q}</span></div>))}</div>)}
-                  </div>
-                  <div className="glass-strong rounded-xl p-4">
-                    <h3 className="font-medium mb-3">Statistiques</h3>
-                    {stats ? (<div className="grid md:grid-cols-3 gap-3 text-sm"><div className="glass rounded-lg p-3"><div className="muted text-xs">Cartes possédées utilisées</div><div className="text-lg font-semibold">{stats.ownedCount} / {deckSize} <span className="text-xs muted">({stats.ownedPct}%)</span></div></div><div className="glass rounded-lg p-3"><div className="muted text-xs">Coût estimé du deck</div><div className="text-lg font-semibold">{(deck.spent||0).toFixed(2)}€</div></div><div className="glass rounded-lg p-3"><div className="muted text-xs">CMC moyen (hors terrains)</div><div className="text-lg font-semibold">{stats.avgCmc}</div></div><div className="md:col-span-3 grid md:grid-cols-4 gap-2">{Object.entries(stats.typeCounts).map(([k,v])=> (<div key={k} className="glass rounded-lg p-3 flex items-center justify-between"><span className="muted text-xs">{k}</span><span className="font-medium">{v}</span></div>))}</div></div>) : (<div className="muted text-sm">Aucune statistique (génère un deck d'abord).</div>)}
-                  </div>
+                  <div><h3 className="text-lg font-medium">Sorts non-terrains ({Object.values(deck.nonlands).reduce((a,b)=>a+b,0)})</h3>{Object.keys(nonlandsByType).length===0 ? (<p className="text-sm muted mt-1">Aucun sort détecté.</p>) : (<div className="space-y-4 mt-2">{Object.entries(nonlandsByType).map(([label, cards])=> (<div key={label}><h4 className="text-sm muted mb-2">{label} ({cards.length})</h4><div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{cards.map((c,idx)=> { const owned = isOwned(c.name); return (<CardTile key={c.name+idx} card={c} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>); })}</div></div>))}</div>)}</div>
+                  <div><h3 className="text-lg font-medium">Terrains ({Object.values(deck.lands).reduce((a,b)=>a+b,0)})</h3>{Array.isArray(deck.landCards) && deck.landCards.length>0 ? (<div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">{deck.landCards.map((lc,idx)=> { const owned = isOwned(lc.name); return (<CardTile key={lc.name+idx} card={lc} qty={lc.qty} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>); })}</div>) : (<div className="grid md:grid-cols-2 gap-2 mt-2 text-sm">{Object.entries(deck.lands).map(([n,q]) => (<div key={n} className="flex justify-between glass-strong rounded-lg px-3 py-1.5"><span>{n}</span><span className="muted">x{q}</span></div>))}</div>)}</div>
                   <div className="grid grid-cols-1 lg:flex lg:flex-wrap lg:gap-2 gap-2"><button className="btn" onClick={copyList}><Copy className="inline-block h-4 w-4"/>Copier</button><button className="btn" onClick={exportJson}><Download className="inline-block h-4 w-4"/>JSON</button><button className="btn-primary" onClick={exportTxt}><Download className="inline-block h-4 w-4"/>TXT</button><button className="btn" onClick={reequilibrer} disabled={loading}><Sparkles className="inline-block h-4 w-4"/>Rééquilibrer</button></div>
                 </div>
               )}
