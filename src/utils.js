@@ -149,7 +149,7 @@ export async function searchCommandersAnyLang(q) {
  */
 export async function fetchCommanderDeckCount(cardName) {
   if (!cardName) return null;
-  
+
   // Crée un "slug" à partir du nom de la carte (ex: "Etali, Primal Storm" -> "etali-primal-storm")
   const slug = cardName
     .toLowerCase()

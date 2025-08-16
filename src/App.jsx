@@ -76,16 +76,16 @@ export default function App() {
   const maybeAddBackground = async (primary) => { const wants = allowBackground && oracle(primary).includes("choose a background"); if (!wants) return null; const q = ["legal:commander", "type:background", "game:paper", identityToQuery(getCI(primary) || "wubrg")].join(" "); for (let i = 0; i < 10; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; return c; } return null; };
   const fetchPool = async (ci) => { const base = `legal:commander game:paper ${identityToQuery(ci)} -is:funny`; const mech = mechanics.length ? ` (${mechanics.map(k => { const tag = MECHANIC_TAGS.find(m => m.key === k); if (!tag) return ""; const parts = tag.matchers.map(m => `o:\"${m}\"`).join(" or "); return `(${parts})`; }).join(" or ")})` : ""; const spellsQ = `${base} -type:land -type:background${mech}`; const landsQ = `${base} type:land -type:basic`; const gather = async (q, b, pages = 2) => { let page = await sf.search(q, { unique: "cards", order: "random" }); b.push(...page.data); for (let i = 1; i < pages && page.has_more; i++) { await sleep(100); page = await fetch(page.next_page).then(r => r.json()); b.push(...page.data); } }; const spells = [], lands = []; await gather(spellsQ, spells, 2); await gather(landsQ, lands, 1); return { spells: distinctByName(spells).filter(isCommanderLegal), lands: distinctByName(lands).filter(isCommanderLegal) }; };
   async function buildLandCards(landsMap) { const out = []; for (const [n, q] of Object.entries(landsMap)) { try { const b = await bundleByName(n); out.push({ ...b, qty: q }); } catch { out.push({ name: n, qty: q, image: "", small: "", oracle_en: "", mana_cost: "", cmc: 0, prices: {}, scryfall_uri: "" }); } await sleep(60); } return out; }
-  
+
   const generate = async () => {
     setError(""); setLoading(true); setDeck(null); setCommandersExtraInfo({});
     try {
       const primary = await pickCommander(commanderMode === 'random' ? desiredCI : getCI(selectedCommanderCard));
       let cmdrs = [primary]; const partner = await maybeAddPartner(primary); const background = await maybeAddBackground(primary); if (partner) cmdrs.push(partner); else if (background) cmdrs.push(background);
       let ci = getCI(primary); if (cmdrs.length > 1) for (const c of cmdrs) ci = unionCI(ci, getCI(c));
-      
+
       const commandersFull = cmdrs.map(bundleCard);
-      
+
       // LANCE LA RÉCUPÉRATION DES DONNÉES EDHREC EN PARALLÈLE
       const extraInfoPromises = commandersFull.map(c => fetchCommanderDeckCount(c.name));
       Promise.all(extraInfoPromises).then(results => {
@@ -104,7 +104,7 @@ export default function App() {
       const balanced = balanceSpells(pickedSpells, pool.spells, totalBudget, spent); pickedSpells = balanced.picks; spent = balanced.spent;
       const basicsNeeded = Math.max(landsTarget - Math.min(8, landsPref.length), 0); const landsMap = buildManaBase(ci, basicsNeeded); const chosenNonbasics = []; for (const nb of landsPref) { if (chosenNonbasics.length >= 8) break; const p = priceEUR(nb); if (totalBudget > 0 && (spent + p) > totalBudget) continue; chosenNonbasics.push(nb); spent += p; } for (const nb of chosenNonbasics) { landsMap[nameOf(nb)] = (landsMap[nameOf(nb)] || 0) + 1; }
       const currentCount = cmdrs.length + pickedSpells.length + Object.values(landsMap).reduce((a, b) => a + b, 0); let missing = 100 - currentCount; const basicsByColor = { W: "Plains", U: "Island", B: "Swamp", R: "Mountain", G: "Forest" }; const firstBasic = (ci.split("")[0] && basicsByColor[ci.split("")[0]]) || "Wastes"; while (missing > 0) { landsMap[firstBasic] = (landsMap[firstBasic] || 0) + 1; missing--; }
-      
+
       const nonlandCards = pickedSpells.map(bundleCard);
       const landCards = await buildLandCards(landsMap);
       setDeck({
