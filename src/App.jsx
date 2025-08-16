@@ -162,7 +162,10 @@ export default function App() {
     <div className="min-h-screen">
       <div className="max-w-7xl mx-auto px-6 py-10">
         <header className="header-wrap lg:flex lg:items-center lg:justify-between lg:gap-4">
-          <h1 className="text-2xl md:text-4xl font-semibold tracking-tight"> Commander Craft</h1>
+          <div className="flex items-center gap-3">
+            <img src="/commander-craft-logo.png" alt="Commander Craft Logo" className="h-12 w-12 md:h-14 md:w-14" />
+            <h1 className="text-2xl md:text-4xl font-semibold tracking-tight"> Commander Craft</h1>
+          </div>
           <div className="header-actions lg:flex lg:gap-2 lg:w-auto">
             <button className="btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Basculer thème">
               {theme === 'dark' ? (<><Sun className="h-4 w-4" /><span>Mode clair</span></>) : (<><Moon className="h-4 w-4" /><span>Mode sombre</span></>)}
