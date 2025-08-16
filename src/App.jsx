@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCcw, Shuffle, Copy, Download, Upload, Settings2, Info, Sparkles, Trash2, Sun, Moon } from "lucide-react";
 
 // Import des modules séparés avec leurs extensions de fichier
-import './App.css';
+import './index.css';
 import {
   COLORS, MECHANIC_TAGS, RE, sleep, ciMask, identityToQuery, nameOf, oracle,
   isCommanderLegal, getCI, unionCI, priceEUR, edhrecScore, distinctByName,
