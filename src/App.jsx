@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCcw, Shuffle, Copy, Download, Upload, Settings2, Info, Sparkles, Trash2, Sun, Moon } from "lucide-react";
 
-// Import des modules séparés avec leurs extensions de fichier
-import './index.css';
+// Import des modules séparés
+import './index.css'; // Assurez-vous que l'import pointe vers index.css
 import {
-  COLORS, MECHANIC_TAGS, RE, sleep, ciMask, identityToQuery, nameOf, oracle,
+  MECHANIC_TAGS, RE, sleep, ciMask, identityToQuery, nameOf, oracle,
   isCommanderLegal, getCI, unionCI, priceEUR, edhrecScore, distinctByName,
   sf, bundleCard, bundleByName, primaryTypeLabel, parseCollectionFile
 } from './utils.js';
@@ -56,6 +56,9 @@ export default function App() {
   const [modalOwned, setModalOwned] = useState(false);
 
   const commanderSectionRef = useRef(null);
+
+  // Ordre des couleurs pour les boutons de sélection d'identité
+  const IDENTITY_COLOR_ORDER = ['W', 'B', 'U', 'G', 'R']; // Ordre: Blanc, Noir, Bleu, Vert, Rouge
 
   // Commander (resolved when select mode)
   const selectedCommanderCard = useCommanderResolution(commanderMode, chosenCommander, setDesiredCI, setError);
@@ -189,11 +192,32 @@ export default function App() {
             {commanderMode !== 'select' && (
               <div className="mt-4">
                 <span className="muted text-sm">Identité couleur (optionnel)</span>
-                <div className="flex gap-2 mt-2 flex-wrap">
-                  {COLORS.map(c => (
-                    <button key={c} className={`btn ${desiredCI.includes(c) ? 'glass-strong' : ''}`} onClick={() => { const set = new Set(desiredCI.split("")); set.has(c) ? set.delete(c) : set.add(c); setDesiredCI(ciMask(Array.from(set).join(""))); }}>{c}</button>
+                <div className="flex gap-2 mt-2 flex-wrap items-center">
+                  {/* Bouton "Uncolor" / Réinitialiser */}
+                  <button className="btn p-2.5" onClick={() => setDesiredCI("")} title="Aucune couleur (Réinitialiser)">
+                     <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="12" cy="12" r="10"/>
+                        <path d="m4.9 4.9 14.2 14.2"/>
+                     </svg>
+                  </button>
+
+                  {IDENTITY_COLOR_ORDER.map(c => (
+                    <button
+                      key={c}
+                      className={`btn p-2 ${desiredCI.includes(c) ? 'glass-strong' : ''}`}
+                      onClick={() => {
+                        const set = new Set(desiredCI.split(""));
+                        set.has(c) ? set.delete(c) : set.add(c);
+                        setDesiredCI(ciMask(Array.from(set).join("")));
+                      }}
+                    >
+                      <img
+                        src={`https://svgs.scryfall.io/card-symbols/${c}.svg`}
+                        alt={c}
+                        style={{ width: '24px', height: '24px', display: 'block' }}
+                      />
+                    </button>
                   ))}
-                  <button className="btn" onClick={() => setDesiredCI("")}>Réinitialiser</button>
                 </div>
               </div>
             )}
