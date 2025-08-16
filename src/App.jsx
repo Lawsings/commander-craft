@@ -7,7 +7,7 @@ import {
   MECHANIC_TAGS, RE, sleep, ciMask, identityToQuery, nameOf, oracle,
   isCommanderLegal, getCI, unionCI, priceEUR, edhrecScore, distinctByName,
   sf, bundleCard, bundleByName, primaryTypeLabel, parseCollectionFile,
-  fetchCommanderDeckCount, WIN_CONDITIONS, GAME_CHANGERS
+  fetchCommanderDeckCount
 } from './utils.js';
 import { useCommanderResolution } from './hooks.js';
 import ManaCost from './components/ManaCost.jsx';
@@ -56,17 +56,9 @@ export default function App() {
   const [modalCard, setModalCard] = useState(null);
   const [modalOwned, setModalOwned] = useState(false);
   const [commandersExtraInfo, setCommandersExtraInfo] = useState({});
-  const [bracket, setBracket] = useState('focused');
-  const [specialCards, setSpecialCards] = useState({ winCons: new Set(), gameChangers: new Set() });
 
   const commanderSectionRef = useRef(null);
   const IDENTITY_COLOR_ORDER = ['W', 'B', 'U', 'G', 'R'];
-  const BRACKETS = [
-    { key: 'casual', label: 'Casual', description: 'Ambiance conviviale, grosses créatures, peu d\'interaction.' },
-    { key: 'focused', label: 'Focused', description: 'Decks avec un plan de jeu clair, plus consistants.' },
-    { key: 'optimized', label: 'Optimized', description: 'Decks très optimisés, visant une victoire efficace.' },
-    { key: 'competitive', label: 'Competitive', description: 'Proche du cEDH, avec les cartes les plus puissantes.' },
-  ];
 
   const selectedCommanderCard = useCommanderResolution(commanderMode, chosenCommander, setDesiredCI, setError);
   const toggleMechanic = (key) => setMechanics(prev => prev.includes(key) ? prev.filter(k => k !== key) : (prev.length >= 3 ? (setLimitNotice("Maximum 3 mécaniques à la fois"), setTimeout(() => setLimitNotice(""), 1500), prev) : [...prev, key]));
@@ -82,24 +74,11 @@ export default function App() {
   const maybeAddPartner = async (primary) => { const has = (oracle(primary).includes("partner") || (primary.keywords || []).some(k => k.toLowerCase().includes("partner"))); if (!allowPartner || !has) return null; const q = ["legal:commander", "is:commander", "game:paper", "-is:funny", "(keyword:partner or o:\"Partner with\")"].join(" "); for (let i = 0; i < 12; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; if (nameOf(c) === nameOf(primary)) continue; return c; } return null; };
   const maybeAddBackground = async (primary) => { const wants = allowBackground && oracle(primary).includes("choose a background"); if (!wants) return null; const q = ["legal:commander", "type:background", "game:paper", identityToQuery(getCI(primary) || "wubrg")].join(" "); for (let i = 0; i < 10; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; return c; } return null; };
 
-  const fetchPool = async (ci, bracket) => {
-    let bracketQuery = "";
-    switch (bracket) {
-      case 'casual': bracketQuery = "edhrec_rank>10000"; break;
-      case 'focused': bracketQuery = "edhrec_rank>2000"; break;
-      case 'optimized': bracketQuery = "edhrec_rank<=15000"; break;
-      case 'competitive': bracketQuery = "edhrec_rank<=5000"; break;
-      default: break;
-    }
-
-    const queryParts = ['legal:commander', 'game:paper', identityToQuery(ci), '-is:funny', bracketQuery];
-    const base = queryParts.filter(Boolean).join(' ');
-
+  const fetchPool = async (ci) => {
+    const base = `legal:commander game:paper ${identityToQuery(ci)} -is:funny`;
     const mech = mechanics.length ? ` (${mechanics.map(k => { const tag = MECHANIC_TAGS.find(m => m.key === k); if (!tag) return ""; const parts = tag.matchers.map(m => `o:\"${m}\"`).join(" or "); return `(${parts})`; }).join(" or ")})` : "";
     const spellsQ = `${base} -type:land -type:background${mech}`;
     const landsQ = `${base} type:land -type:basic`;
-
-    // MODIFICATION: La fonction `gather` gère maintenant les erreurs 404
     const gather = async (q, b, pages = 2) => {
       try {
         let page = await sf.search(q, { unique: "cards", order: "edhrec" });
@@ -121,9 +100,8 @@ export default function App() {
       } catch (error) {
         if (!error.message.includes("404")) {
           console.error("Scryfall API error during gather:", error);
-          throw error; // Relance l'erreur si ce n'est pas une 404
+          throw error;
         }
-        // Si c'est une 404, on ne fait rien, ce qui signifie juste "pas de résultats".
       }
     };
 
@@ -135,23 +113,8 @@ export default function App() {
 
   async function buildLandCards(landsMap) { const out = []; for (const [n, q] of Object.entries(landsMap)) { try { const b = await bundleByName(n); out.push({ ...b, qty: q }); } catch { out.push({ name: n, qty: q, image: "", small: "", oracle_en: "", mana_cost: "", cmc: 0, prices: {}, scryfall_uri: "" }); } await sleep(60); } return out; }
 
-  const identifySpecialCards = (cards) => {
-    const winCons = new Set();
-    const gameChangers = new Set();
-    cards.forEach(card => {
-      const cardName = nameOf(card).toLowerCase();
-      if (WIN_CONDITIONS.has(cardName)) {
-        winCons.add(nameOf(card));
-      }
-      if (GAME_CHANGERS.has(cardName) || RE.WRATHS.test(oracle(card))) {
-        gameChangers.add(nameOf(card));
-      }
-    });
-    setSpecialCards({ winCons, gameChangers });
-  };
-
   const generate = async () => {
-    setError(""); setLoading(true); setDeck(null); setCommandersExtraInfo({}); setSpecialCards({ winCons: new Set(), gameChangers: new Set() });
+    setError(""); setLoading(true); setDeck(null); setCommandersExtraInfo({});
     try {
       const primary = await pickCommander(commanderMode === 'random' ? desiredCI : getCI(selectedCommanderCard));
       let cmdrs = [primary]; const partner = await maybeAddPartner(primary); const background = await maybeAddBackground(primary); if (partner) cmdrs.push(partner); else if (background) cmdrs.push(background);
@@ -166,7 +129,7 @@ export default function App() {
           setCommandersExtraInfo(newExtraInfo);
       });
 
-      const pool = await fetchPool(ci, bracket);
+      const pool = await fetchPool(ci);
       const totalBudget = Number(deckBudget) || 0; let spent = cmdrs.reduce((s, c) => s + priceEUR(c), 0); if (totalBudget > 0 && spent > totalBudget) throw new Error(`Le budget (${totalBudget.toFixed(2)}€) est déjà dépassé par le coût des commandants (${spent.toFixed(2)}€).`);
       const total = 100; const landsTarget = Math.max(32, Math.min(40, targetLands)); const spellsTarget = total - cmdrs.length - landsTarget;
       const spellsPref = sortByPreference(pool.spells); const landsPref = sortByPreference(pool.lands);
@@ -177,8 +140,6 @@ export default function App() {
 
       const nonlandCards = pickedSpells.map(bundleCard);
       const landCards = await buildLandCards(landsMap);
-
-      identifySpecialCards([...commandersFull, ...nonlandCards]);
 
       setDeck({
         colorIdentity: ci,
@@ -257,14 +218,6 @@ export default function App() {
               {/* Colonne 1 */}
               <div className="flex flex-col space-y-4">
                 <div className="space-y-2">
-                  <span className="muted text-sm">Niveau de puissance (Bracket)</span>
-                  <div className="flex flex-wrap gap-2">
-                    {BRACKETS.map(b => (
-                      <button key={b.key} className={`btn text-xs ${bracket === b.key ? 'glass-strong' : ''}`} onClick={() => setBracket(b.key)} title={b.description}>{b.label}</button>
-                    ))}
-                  </div>
-                </div>
-                <div className="space-y-2">
                   <span className="muted text-sm">Commandant</span>
                   <div className="flex gap-2 flex-wrap">
                     <button className={`btn ${commanderMode === 'random' ? 'glass-strong' : ''}`} onClick={() => { setCommanderMode('random'); setChosenCommander(""); }}>Aléatoire</button>
@@ -288,6 +241,24 @@ export default function App() {
                     </div>
                   </div>
                 )}
+                <div>
+                  <span className="muted text-sm">Mécaniques préférées (max 3)</span>
+                  <div className="mt-2">
+                    <div className="mechanic-category">Catégorie S (Les plus populaires)</div>
+                    <div className="flex flex-wrap gap-2">
+                      {MECHANIC_TAGS.filter(m => m.category === 'S').map(m => (<button key={m.key} className={`btn text-xs ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
+                    </div>
+                    <div className="mechanic-category">Catégorie A (Très courants)</div>
+                    <div className="flex flex-wrap gap-2">
+                      {MECHANIC_TAGS.filter(m => m.category === 'A').map(m => (<button key={m.key} className={`btn text-xs ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
+                    </div>
+                    <div className="mechanic-category">Catégorie B (Populaires)</div>
+                    <div className="flex flex-wrap gap-2">
+                      {MECHANIC_TAGS.filter(m => m.category === 'B').map(m => (<button key={m.key} className={`btn text-xs ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
+                    </div>
+                  </div>
+                  {limitNotice && <p className="text-xs" style={{ color: 'var(--warn)' }}>{limitNotice}</p>}
+                </div>
               </div>
 
               {/* Colonne 2 */}
@@ -323,25 +294,6 @@ export default function App() {
                   <div className="flex items-center justify-between mt-3"><p>Cartes reconnues: <span className="font-semibold">{ownedMap.size}</span></p><button className="btn" onClick={clearCollection}>Réinitialiser</button></div>
                 </div>
               </div>
-            </div>
-
-            <div className="mt-4">
-              <span className="muted text-sm">Mécaniques préférées (max 3)</span>
-              <div className="mt-2">
-                <div className="mechanic-category">Catégorie S (Les plus populaires)</div>
-                <div className="flex flex-wrap gap-2">
-                  {MECHANIC_TAGS.filter(m => m.category === 'S').map(m => (<button key={m.key} className={`btn text-xs ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
-                </div>
-                <div className="mechanic-category">Catégorie A (Très courants)</div>
-                <div className="flex flex-wrap gap-2">
-                  {MECHANIC_TAGS.filter(m => m.category === 'A').map(m => (<button key={m.key} className={`btn text-xs ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
-                </div>
-                <div className="mechanic-category">Catégorie B (Populaires)</div>
-                <div className="flex flex-wrap gap-2">
-                  {MECHANIC_TAGS.filter(m => m.category === 'B').map(m => (<button key={m.key} className={`btn text-xs ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
-                </div>
-              </div>
-              {limitNotice && <p className="text-xs" style={{ color: 'var(--warn)' }}>{limitNotice}</p>}
             </div>
 
             {/* Actions principales */}
@@ -411,8 +363,6 @@ export default function App() {
                             card={c}
                             owned={owned}
                             onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}
-                            isWinCon={specialCards.winCons.has(c.name)}
-                            isGameChanger={specialCards.gameChangers.has(c.name)}
                           />
                         );
                       })}
@@ -420,7 +370,7 @@ export default function App() {
                   </div>
 
                   <div className="grid md:grid-cols-2 gap-4"><Progress label="Ramp" value={deck.balanceCounts?.ramp||0} targetMin={targets.ramp.min} targetMax={targets.ramp.max}/><Progress label="Pioche" value={deck.balanceCounts?.draw||0} targetMin={targets.draw.min} targetMax={targets.draw.max}/><Progress label="Anti-bêtes / Answers" value={deck.balanceCounts?.removal||0} targetMin={targets.removal.min} targetMax={targets.removal.max}/><Progress label="Wraths" value={deck.balanceCounts?.wraths||0} targetMin={targets.wraths.min} targetMax={targets.wraths.max}/></div>
-                  <div><h3 className="text-lg font-medium">Sorts non-terrains ({Object.values(deck.nonlands).reduce((a,b)=>a+b,0)})</h3>{Object.keys(nonlandsByType).length===0 ? (<p className="text-sm muted mt-1">Aucun sort détecté.</p>) : (<div className="space-y-4 mt-2">{Object.entries(nonlandsByType).map(([label, cards])=> (<div key={label}><h4 className="text-sm muted mb-2">{label} ({cards.length})</h4><div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{cards.map((c,idx)=> { const owned = isOwned(c.name); return (<CardTile key={c.name+idx} card={c} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}} isWinCon={specialCards.winCons.has(c.name)} isGameChanger={specialCards.gameChangers.has(c.name)}/>); })}</div></div>))}</div>)}</div>
+                  <div><h3 className="text-lg font-medium">Sorts non-terrains ({Object.values(deck.nonlands).reduce((a,b)=>a+b,0)})</h3>{Object.keys(nonlandsByType).length===0 ? (<p className="text-sm muted mt-1">Aucun sort détecté.</p>) : (<div className="space-y-4 mt-2">{Object.entries(nonlandsByType).map(([label, cards])=> (<div key={label}><h4 className="text-sm muted mb-2">{label} ({cards.length})</h4><div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{cards.map((c,idx)=> { const owned = isOwned(c.name); return (<CardTile key={c.name+idx} card={c} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}} />); })}</div></div>))}</div>)}</div>
                   <div><h3 className="text-lg font-medium">Terrains ({Object.values(deck.lands).reduce((a,b)=>a+b,0)})</h3>{Array.isArray(deck.landCards) && deck.landCards.length>0 ? (<div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">{deck.landCards.map((lc,idx)=> { const owned = isOwned(lc.name); return (<CardTile key={lc.name+idx} card={lc} qty={lc.qty} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>); })}</div>) : (<div className="grid md:grid-cols-2 gap-2 mt-2 text-sm">{Object.entries(deck.lands).map(([n,q]) => (<div key={n} className="flex justify-between glass-strong rounded-lg px-3 py-1.5"><span>{n}</span><span className="muted">x{q}</span></div>))}</div>)}</div>
                   <div className="grid grid-cols-1 lg:flex lg:flex-wrap lg:gap-2 gap-2"><button className="btn" onClick={copyList}><Copy className="inline-block h-4 w-4"/>Copier</button><button className="btn" onClick={exportJson}><Download className="inline-block h-4 w-4"/>JSON</button><button className="btn-primary" onClick={exportTxt}><Download className="inline-block h-4 w-4"/>TXT</button><button className="btn" onClick={reequilibrer} disabled={loading}><Sparkles className="inline-block h-4 w-4"/>Rééquilibrer</button></div>
                 </div>

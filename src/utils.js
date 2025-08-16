@@ -20,29 +20,6 @@ export const sf = {
   },
 };
 
-/***************** Listes de cartes spéciales *****************/
-// Listes non exhaustives des cartes les plus communes pour chaque catégorie
-export const WIN_CONDITIONS = new Set([
-  "craterhoof behemoth", "expropriate", "torment of hailfire", "approach of the second sun",
-  "aetherflux reservoir", "thassa's oracle", "finale of devastation", "insurrection",
-  "revel in riches", "triskaidekaphile", "felidar sovereign", "test of endurance",
-  "mayael's aria", "simic ascendancy", "vorinclex, monstrous raider", " Triumph of the Hordes"
-]);
-
-export const GAME_CHANGERS = new Set([
-  // Board Wipes
-  "cyclonic rift", "damnation", "wrath of god", "blasphemous act", "toxic deluge", "farewell",
-  "austere command", "vanquish the horde", "sunfall",
-  // Fast Mana & Rituals
-  "sol ring", "mana crypt", "mana vault", "jeweled lotus", "dark ritual", "jeska's will",
-  // Powerful Staples & Tutors
-  "rhystic study", "smothering tithe", "mystic remora", "dockside extortionist", "esper sentinel",
-  "demonic tutor", "vampiric tutor", "enlightened tutor", "worldly tutor", "mystical tutor",
-  // Free Interaction
-  "fierce guardianship", "deflecting swat", "flawless maneuver", "deadly rollick", "force of will"
-]);
-
-
 /***************** Constantes et Utilitaires *****************/
 export const MECHANIC_TAGS = [
   // Catégorie S
@@ -79,7 +56,6 @@ export const RE = {
 
 export const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 export const ciMask = (s) => s.split("").filter(Boolean).sort().join("");
-// MODIFICATION: Ne retourne la requête `ci<=` que si une identité couleur est fournie.
 export const identityToQuery = (ci) => (ci ? `ci<=${ci.toLowerCase()}` : "");
 export const nameOf = (c) => c?.name?.trim?.() || "";
 export const oracle = (c) => (c?.oracle_text || "").toLowerCase();
