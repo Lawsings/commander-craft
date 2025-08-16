@@ -1,13 +1,14 @@
 // Fichier: components/CardModal.jsx
 import React from 'react';
-import ManaCost from './ManaCost';
+import ManaCost from './ManaCost.jsx';
 
 export default function CardModal({ open, card, owned, onClose }) {
   if (!open || !card) return null;
   const price = (Number(card.prices?.eur) || Number(card.prices?.eur_foil) || 0).toFixed(2);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-      <div className="bg-[#111] border border-white/20 rounded-2xl max-w-3xl w-full grid md:grid-cols-2 gap-4 p-4" onClick={(e) => e.stopPropagation()}>
+      {/* Les classes bg-[#111] et border ont été remplacées par modal-content */}
+      <div className="modal-content rounded-2xl max-w-3xl w-full grid md:grid-cols-2 gap-4 p-4" onClick={(e) => e.stopPropagation()}>
         {card.image && <img src={card.image} alt={card.name} className="w-full rounded-lg object-cover" />}
         <div className="space-y-2 min-w-0">
           <h4 className="text-xl font-semibold flex items-center gap-2">

@@ -214,3 +214,10 @@ body,
 .list-item:hover {
     background-color: var(--btn-hover-bg);
 }
+
+/* NOUVELLE CLASSE POUR LA MODALE */
+.modal-content {
+  background-color: var(--bg1);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
