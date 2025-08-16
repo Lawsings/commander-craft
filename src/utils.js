@@ -22,16 +22,29 @@ export const sf = {
 
 /***************** Constantes et Utilitaires *****************/
 export const MECHANIC_TAGS = [
-  { key: "blink", label: "Blink / Flicker", matchers: ["exile then return", "flicker", "phase out", "enters the battlefield ", "blink"] },
-  { key: "tokens", label: "Tokens", matchers: ["create a token", "token"] },
-  { key: "sacrifice", label: "Sacrifice", matchers: ["sacrifice a", "whenever you sacrifice", "devour", "exploit"] },
-  { key: "lifegain", label: "Gain de vie", matchers: ["you gain", "lifelink", "whenever you gain life"] },
-  { key: "spellslinger", label: "Spellslinger", matchers: ["instant or sorcery", "prowess", "magecraft", "copy target instant", "storm"] },
-  { key: "+1+1", label: "+1/+1 Counters", matchers: ["+1/+1 counter", "proliferate", "evolve"] },
-  { key: "reanimator", label: "Réanimation", matchers: ["return target creature card from your graveyard", "reanimate", "unearth", "persist", "undying"] },
-  { key: "landfall", label: "Landfall / Terrains", matchers: ["landfall", "whenever a land enters the battlefield under your control", "search your library for a land"] },
-  { key: "artifacts", label: "Artifacts", matchers: ["artifact you control", "improvise", "affinity for artifacts", "create a Treasure"] },
-  { key: "enchantress", label: "Enchantements", matchers: ["enchantment spell", "constellation", "aura", "enchantress"] },
+  // Catégorie S
+  { key: "+1+1", label: "+1/+1 Counters", category: "S", matchers: ["+1/+1 counter", "proliferate", "evolve", "outlast"] },
+  { key: "artifacts", label: "Artifacts Matter", category: "S", matchers: ["artifact you control", "improvise", "affinity for artifacts", "create a Treasure", "metalcraft"] },
+  { key: "tokens", label: "Tokens", category: "S", matchers: ["create a token", "token creature", "populate"] },
+  { key: "graveyard", label: "Graveyard / Reanimator", category: "S", matchers: ["return target creature card from your graveyard", "reanimate", "unearth", "persist", "undying", "dredge"] },
+  { key: "spellslinger", label: "Spellslinger", category: "S", matchers: ["instant or sorcery", "prowess", "magecraft", "copy target instant", "storm"] },
+  // Catégorie A
+  { key: "blink", label: "Blink / Flicker", category: "A", matchers: ["exile then return", "flicker", "phase out", "enters the battlefield "] },
+  { key: "tribal", label: "Tribal", category: "A", matchers: ["another target", "creatures you control get", "of the chosen type"] },
+  { key: "landfall", label: "Landfall", category: "A", matchers: ["landfall", "whenever a land enters the battlefield under your control", "search your library for a land"] },
+  { key: "enchantress", label: "Enchantress", category: "A", matchers: ["enchantment spell", "constellation", "aura spell", "whenever you cast an enchantment"] },
+  { key: "sacrifice", label: "Sacrifice / Aristocrats", category: "A", matchers: ["sacrifice a", "whenever you sacrifice", "devour", "exploit", "whenever a creature dies"] },
+  { key: "voltron", label: "Voltron", category: "A", matchers: ["equipment", "aura", "equipped creature", "enchanted creature", "commander damage"] },
+  { key: "lifegain", label: "Lifegain", category: "A", matchers: ["you gain life", "lifelink", "whenever you gain life"] },
+  // Catégorie B
+  { key: "cascade", label: "Cascade", category: "B", matchers: ["cascade"] },
+  { key: "mill", label: "Mill", category: "B", matchers: ["put the top", "cards of their library into their graveyard", "mill"] },
+  { key: "group-hug", label: "Group Hug", category: "B", matchers: ["each player draws", "each player creates", "each player may"] },
+  { key: "stax", label: "Stax", category: "B", matchers: ["can't cast spells", "can't attack", "enters the battlefield tapped", "stax"] },
+  { key: "storm", label: "Storm", category: "B", matchers: ["storm"] },
+  { key: "infect", label: "Infect", category: "B", matchers: ["infect", "proliferate"] },
+  { key: "superfriends", label: "Superfriends", category: "B", matchers: ["planeswalker", "loyalty ability", "ultimate"] },
+  { key: "politics", label: "Politics / Goad", category: "B", matchers: ["goad", "goaded", "monarch", "initiative"] },
 ];
 
 export const RE = {
@@ -141,31 +154,13 @@ export async function searchCommandersAnyLang(q) {
     }));
 }
 
-/**
- * Récupère le nombre de decks pour un commandant donné depuis les données JSON d'EDHREC.
- * C'est une source de données non officielle, mais couramment utilisée.
- * @param {string} cardName - Le nom anglais exact de la carte.
- * @returns {Promise<number|null>} Le nombre de decks, ou null en cas d'erreur.
- */
 export async function fetchCommanderDeckCount(cardName) {
   if (!cardName) return null;
-
-  // Crée un "slug" à partir du nom de la carte (ex: "Etali, Primal Storm" -> "etali-primal-storm")
-  const slug = cardName
-    .toLowerCase()
-    .split('//')[0] // Garde seulement la première face pour les cartes doubles
-    .trim()
-    .replace(/,+/g, '') // Enlève les virgules
-    .replace(/\s+/g, '-'); // Remplace les espaces par des tirets
-
+  const slug = cardName.toLowerCase().split('//')[0].trim().replace(/,+/g, '').replace(/\s+/g, '-');
   try {
-    // Utilise un proxy CORS pour éviter les blocages en déploiement
     const response = await fetch(`https://json.edhrec.com/pages/commanders/${slug}.json`);
-    if (!response.ok) {
-      return null;
-    }
+    if (!response.ok) return null;
     const json = await response.json();
-    // Navigue dans l'objet JSON pour trouver le nombre de decks
     return json?.container?.json_dict?.card?.num_decks || null;
   } catch (error) {
     console.error("Erreur lors de la récupération des données EDHREC:", error);

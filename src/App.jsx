@@ -44,7 +44,7 @@ export default function App() {
   const [allowBackground, setAllowBackground] = useState(true);
   const [desiredCI, setDesiredCI] = useState("");
   const [targetLands, setTargetLands] = useState(37);
-  const [deckBudget, setDeckBudget] = useState(0);
+  const [deckBudget, setDeckBudget] = useState(50); // MODIFICATION: Budget par défaut à 50
   const [mechanics, setMechanics] = useState([]);
   const [limitNotice, setLimitNotice] = useState("");
   const [weightOwned, setWeightOwned] = useState(1.0);
@@ -207,8 +207,20 @@ export default function App() {
                 )}
                 <div>
                   <span className="muted text-sm">Mécaniques préférées (max 3)</span>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
-                    {MECHANIC_TAGS.map(m => (<button key={m.key} className={`btn ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
+                  <div className="mt-2">
+                    {/* MODIFICATION: Affichage des mécaniques par catégorie */}
+                    <div className="text-xs muted mb-1">Catégorie S (Les plus populaires)</div>
+                    <div className="flex flex-wrap gap-2">
+                      {MECHANIC_TAGS.filter(m => m.category === 'S').map(m => (<button key={m.key} className={`btn text-xs ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
+                    </div>
+                    <div className="text-xs muted mt-3 mb-1">Catégorie A (Très courants)</div>
+                    <div className="flex flex-wrap gap-2">
+                      {MECHANIC_TAGS.filter(m => m.category === 'A').map(m => (<button key={m.key} className={`btn text-xs ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
+                    </div>
+                    <div className="text-xs muted mt-3 mb-1">Catégorie B (Populaires)</div>
+                    <div className="flex flex-wrap gap-2">
+                      {MECHANIC_TAGS.filter(m => m.category === 'B').map(m => (<button key={m.key} className={`btn text-xs ${mechanics.includes(m.key) ? 'glass-strong' : ''}`} onClick={() => toggleMechanic(m.key)}>{m.label}</button>))}
+                    </div>
                   </div>
                   {limitNotice && <p className="text-xs" style={{ color: 'var(--warn)' }}>{limitNotice}</p>}
                 </div>
