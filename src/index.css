@@ -1,4 +1,10 @@
-/* Contenu extrait de la constante THEME_CSS */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  TOUT LE CONTENU DE VOTRE ANCIEN App.css EST COLLÉ ICI.
+*/
 :root {
   --halo: #171717;
   --bg0: #000;
@@ -17,7 +23,6 @@
   --warn: #f59e0b;
 }
 
-/* Light overrides when [data-theme="light"] on <html> */
 [data-theme="light"] {
   --bg0: #ffffff;
   --bg1: #f7f7f7;
@@ -177,7 +182,6 @@ body,
   border: 1px solid rgba(255, 255, 255, 0.2);
 }
 
-/* ===== Mobile-only UX tweaks ===== */
 @media (max-width: 767px) {
   .header-wrap {
     display: flex;
@@ -201,14 +205,12 @@ body,
   }
 }
 
-/* Respect reduced motion for the auto-scroll */
 @media (prefers-reduced-motion: reduce) {
   .smooth-scroll-disabled {
     scroll-behavior: auto !important;
   }
 }
 
-/* Styles pour les listes dans l'autocomplete */
 .list-item:hover {
     background-color: var(--btn-hover-bg);
 }
