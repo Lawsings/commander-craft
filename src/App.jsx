@@ -86,7 +86,6 @@ export default function App() {
 
       const commandersFull = cmdrs.map(bundleCard);
 
-      // LANCE LA RÉCUPÉRATION DES DONNÉES EDHREC EN PARALLÈLE
       const extraInfoPromises = commandersFull.map(c => fetchCommanderDeckCount(c.name));
       Promise.all(extraInfoPromises).then(results => {
           const newExtraInfo = {};
@@ -227,7 +226,21 @@ export default function App() {
             <div className="text-xs muted flex items-start gap-2 mt-3"><Info className="h-4 w-4 mt-0.5"/><p>Règles EDH respectées (100 cartes, singleton sauf bases, identité couleur, légalités). Budget heuristique glouton.</p></div>
           </div>
           <div className="lg:col-span-2 space-y-8">
-            <div className="glass p-6"><h3 className="font-medium mb-3">Cibles d’équilibrage (éditables)</h3><div className="grid md:grid-cols-2 gap-4 text-sm">{["ramp","draw","removal","wraths"].map(cat=> (<div key={cat} className="flex items-center gap-2"><span className="w-28 capitalize">{cat}</span><label className="text-xs muted">Min</label><input type="number" className="w-16 input px-2 py-1" value={targets[cat].min} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], min:Number(e.target.value)||0}}))}/><label className="text-xs muted">Max</label><input type="number" className="w-16 input px-2 py-1" value={targets[cat].max} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], max:Number(e.target.value)||0}}))}/></div>))}<p className="text-xs muted mt-2">L’algo vise le <b>min</b> comme plancher; le max est indicatif pour l’affichage.</p></div>
+            <div className="glass p-6">
+              <h3 className="font-medium mb-3">Cibles d’équilibrage (éditables)</h3>
+              <div className="grid md:grid-cols-2 gap-4 text-sm">
+                {["ramp","draw","removal","wraths"].map(cat=> (
+                  <div key={cat} className="flex items-center gap-2">
+                    <span className="w-28 capitalize">{cat}</span>
+                    <label className="text-xs muted">Min</label>
+                    <input type="number" className="w-16 input px-2 py-1" value={targets[cat].min} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], min:Number(e.target.value)||0}}))}/>
+                    <label className="text-xs muted">Max</label>
+                    <input type="number" className="w-16 input px-2 py-1" value={targets[cat].max} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], max:Number(e.target.value)||0}}))}/>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs muted mt-2">L’algo vise le <b>min</b> comme plancher; le max est indicatif pour l’affichage.</p>
+            </div>
             <div className="glass p-6">
               <div className="flex items-center gap-2 mb-4"><Sparkles className="h-5 w-5"/><h2 className="font-medium">Résultat</h2></div>
               {!deck ? (<div className="text-sm muted">Configure les options puis clique « Générer un deck ».</div>) : (
