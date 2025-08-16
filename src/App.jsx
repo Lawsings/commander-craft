@@ -56,8 +56,8 @@ export default function App() {
   const [modalCard, setModalCard] = useState(null);
   const [modalOwned, setModalOwned] = useState(false);
   const [commandersExtraInfo, setCommandersExtraInfo] = useState({});
-  const [bracket, setBracket] = useState('focused'); // NOUVEL ÉTAT: Bracket
-  const [specialCards, setSpecialCards] = useState({ winCons: new Set(), gameChangers: new Set() }); // NOUVEL ÉTAT: Cartes spéciales
+  const [bracket, setBracket] = useState('focused');
+  const [specialCards, setSpecialCards] = useState({ winCons: new Set(), gameChangers: new Set() });
 
   const commanderSectionRef = useRef(null);
   const IDENTITY_COLOR_ORDER = ['W', 'B', 'U', 'G', 'R'];
@@ -92,7 +92,16 @@ export default function App() {
       default: break;
     }
 
-    const base = `legal:commander game:paper ${identityToQuery(ci)} -is:funny ${bracketQuery}`;
+    // MODIFICATION: Construction de la requête plus robuste
+    const queryParts = [
+      'legal:commander',
+      'game:paper',
+      identityToQuery(ci),
+      '-is:funny',
+      bracketQuery
+    ];
+    const base = queryParts.filter(Boolean).join(' '); // Filtre les parties vides avant de joindre
+
     const mech = mechanics.length ? ` (${mechanics.map(k => { const tag = MECHANIC_TAGS.find(m => m.key === k); if (!tag) return ""; const parts = tag.matchers.map(m => `o:\"${m}\"`).join(" or "); return `(${parts})`; }).join(" or ")})` : "";
     const spellsQ = `${base} -type:land -type:background${mech}`;
     const landsQ = `${base} type:land -type:basic`;
