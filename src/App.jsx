@@ -69,7 +69,7 @@ export default function App() {
   const [commandersExtraInfo, setCommandersExtraInfo] = useState({});
   const [specialCards, setSpecialCards] = useState({ winCons: new Set(), gameChangers: new Set() });
   const [generationProgress, setGenerationProgress] = useState({ active: false, step: '', percent: 0 });
-  const [isRebalancing, setIsRebalancing] = useState(false); // MODIFICATION: 'loading' a été renommé en 'isRebalancing'
+  const [isRebalancing, setIsRebalancing] = useState(false);
 
   const commanderSectionRef = useRef(null);
   const IDENTITY_COLOR_ORDER = ['W', 'B', 'U', 'G', 'R'];
@@ -163,12 +163,15 @@ export default function App() {
 
       setGenerationProgress({ active: true, step: 'Recherche des cartes...', percent: 40 });
       const pool = await fetchPool(ci);
-      if (pool.spells.length < 60) {
+
+      // MODIFICATION: Vérifie si le pool de sorts est suffisant
+      const landsTarget = Math.max(32, Math.min(40, targetLands));
+      const spellsTarget = 100 - cmdrs.length - landsTarget;
+      if (pool.spells.length < spellsTarget) {
         throw new Error("Pas assez de cartes trouvées pour construire un deck. Essayez des paramètres moins restrictifs.");
       }
 
       const totalBudget = Number(deckBudget) || 0; let spent = cmdrs.reduce((s, c) => s + priceEUR(c), 0); if (totalBudget > 0 && spent > totalBudget) throw new Error(`Le budget (${totalBudget.toFixed(2)}€) est déjà dépassé par le coût des commandants (${spent.toFixed(2)}€).`);
-      const total = 100; const landsTarget = Math.max(32, Math.min(40, targetLands)); const spellsTarget = total - cmdrs.length - landsTarget;
 
       setGenerationProgress({ active: true, step: 'Sélection des sorts...', percent: 60 });
       const spellsPref = sortByPreference(pool.spells); const landsPref = sortByPreference(pool.lands);
@@ -187,7 +190,7 @@ export default function App() {
       identifySpecialCards([...commandersFull, ...nonlandCards]);
 
       setGenerationProgress({ active: true, step: 'Finalisation...', percent: 100 });
-      await sleep(500); // Petite pause pour que l'utilisateur voie le 100%
+      await sleep(500);
 
       setDeck({
         colorIdentity: ci,
@@ -204,11 +207,8 @@ export default function App() {
 
   useEffect(() => {
     if (deck && commanderSectionRef.current) {
-      const isSmall = window.matchMedia('(max-width: 767px)').matches;
-      const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
       commanderSectionRef.current.scrollIntoView({
-        behavior: prefersReduced ? 'auto' : 'smooth',
+        behavior: 'smooth',
         block: 'start'
       });
     }
