@@ -93,9 +93,11 @@ export default function App() {
     const mech = mechanics.length ? ` (${mechanics.map(k => { const tag = MECHANIC_TAGS.find(m => m.key === k); if (!tag) return ""; const parts = tag.matchers.map(m => `o:\"${m}\"`).join(" or "); return `(${parts})`; }).join(" or ")})` : "";
     const spellsQ = `${base} -type:land -type:background${mech}`;
     const landsQ = `${base} type:land -type:basic`;
+
+    // MODIFICATION: Retour à la méthode de recherche originale et plus robuste
     const gather = async (q, b, pages = 2) => {
       try {
-        let page = await sf.search(q, { unique: "cards", order: "edhrec" });
+        let page = await sf.search(q, { unique: "cards", order: "random" }); // Utilise "random" au lieu de "edhrec"
         if (page && page.data) {
           b.push(...page.data);
           for (let i = 1; i < pages && page.has_more; i++) {
@@ -164,7 +166,6 @@ export default function App() {
       setGenerationProgress({ active: true, step: 'Recherche des cartes...', percent: 40 });
       const pool = await fetchPool(ci);
 
-      // MODIFICATION: Vérifie si le pool de sorts est suffisant
       const landsTarget = Math.max(32, Math.min(40, targetLands));
       const spellsTarget = 100 - cmdrs.length - landsTarget;
       if (pool.spells.length < spellsTarget) {
