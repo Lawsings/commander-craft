@@ -128,10 +128,12 @@ body,
 .input::placeholder {
   color: rgba(255, 255, 255, 0.45);
 }
+/* MODIFICATION : La liste d'autocomplétion utilise maintenant les variables de thème */
 .list {
-  background: rgba(0, 0, 0, 0.7);
+  background: var(--bg1);
   border: 1px solid var(--border);
   border-radius: 12px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
 }
 .autocomplete-list {
   max-height: 228px;
