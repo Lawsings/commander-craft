@@ -21,8 +21,6 @@ export const sf = {
 };
 
 /***************** Constantes et Utilitaires *****************/
-export const COLORS = ["W", "U", "B", "R", "G"];
-
 export const MECHANIC_TAGS = [
   { key: "blink", label: "Blink / Flicker", matchers: ["exile then return", "flicker", "phase out", "enters the battlefield ", "blink"] },
   { key: "tokens", label: "Tokens", matchers: ["create a token", "token"] },
@@ -71,7 +69,8 @@ export function bundleCard(c) {
     mana_cost: c.mana_cost || f.map(x => x.mana_cost).filter(Boolean).join(' / '),
     cmc: typeof c.cmc === 'number' ? c.cmc : (Number(c.cmc) || 0),
     prices: c.prices || {},
-    scryfall_uri: c.scryfall_uri || c.related_uris?.gatherer || ''
+    scryfall_uri: c.scryfall_uri || c.related_uris?.gatherer || '',
+    edhrec_rank: c.edhrec_rank || null,
   };
 }
 
@@ -140,4 +139,36 @@ export async function searchCommandersAnyLang(q) {
         image: card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || card.card_faces?.[1]?.image_uris?.small || "",
         raw: card,
     }));
+}
+
+/**
+ * Récupère le nombre de decks pour un commandant donné depuis les données JSON d'EDHREC.
+ * C'est une source de données non officielle, mais couramment utilisée.
+ * @param {string} cardName - Le nom anglais exact de la carte.
+ * @returns {Promise<number|null>} Le nombre de decks, ou null en cas d'erreur.
+ */
+export async function fetchCommanderDeckCount(cardName) {
+  if (!cardName) return null;
+  
+  // Crée un "slug" à partir du nom de la carte (ex: "Etali, Primal Storm" -> "etali-primal-storm")
+  const slug = cardName
+    .toLowerCase()
+    .split('//')[0] // Garde seulement la première face pour les cartes doubles
+    .trim()
+    .replace(/,+/g, '') // Enlève les virgules
+    .replace(/\s+/g, '-'); // Remplace les espaces par des tirets
+
+  try {
+    // Utilise un proxy CORS pour éviter les blocages en déploiement
+    const response = await fetch(`https://json.edhrec.com/pages/commanders/${slug}.json`);
+    if (!response.ok) {
+      return null;
+    }
+    const json = await response.json();
+    // Navigue dans l'objet JSON pour trouver le nombre de decks
+    return json?.container?.json_dict?.card?.num_decks || null;
+  } catch (error) {
+    console.error("Erreur lors de la récupération des données EDHREC:", error);
+    return null;
+  }
 }
