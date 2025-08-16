@@ -128,7 +128,6 @@ body,
 .input::placeholder {
   color: rgba(255, 255, 255, 0.45);
 }
-/* MODIFICATION : La liste d'autocomplétion utilise maintenant les variables de thème */
 .list {
   background: var(--bg1);
   border: 1px solid var(--border);
@@ -192,6 +191,14 @@ body,
   padding: 2px 6px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.mechanic-category {
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+  margin-top: 0.75rem;
+  font-weight: 500;
 }
 
 @media (max-width: 767px) {
