@@ -162,9 +162,6 @@ export default function App() {
             <button className="btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Basculer thème">
               {theme === 'dark' ? (<><Sun className="h-4 w-4" /><span>Mode clair</span></>) : (<><Moon className="h-4 w-4" /><span>Mode sombre</span></>)}
             </button>
-            <button className="btn" onClick={copyList}><Copy className="inline-block h-4 w-4" />Copier</button>
-            <button className="btn" onClick={exportJson}><Download className="inline-block h-4 w-4" />JSON</button>
-            <button className="btn-primary" onClick={exportTxt}><Download className="inline-block h-4 w-4" />TXT</button>
           </div>
         </header>
 
