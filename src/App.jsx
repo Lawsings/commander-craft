@@ -206,7 +206,7 @@ export default function App() {
         lands: landsMap, landCards,
         budget: totalBudget, spent: Number(spent.toFixed(2)), balanceTargets: targets, balanceCounts: countCats(pickedSpells)
       });
-    } catch (e) { setError(e.message || String(e)); } finally {
+    }; catch (e) { setError(e.message || String(e)); } finally {
       setGenerationProgress({ active: false, step: '', percent: 0 });
     }
   };
