@@ -88,36 +88,35 @@ export default function App() {
   const maybeAddPartner = async (primary) => { const has = (oracle(primary).includes("partner") || (primary.keywords || []).some(k => k.toLowerCase().includes("partner"))); if (!allowPartner || !has) return null; const q = ["legal:commander", "is:commander", "game:paper", "-is:funny", "(keyword:partner or o:\"Partner with\")"].join(" "); for (let i = 0; i < 12; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; if (nameOf(c) === nameOf(primary)) continue; return c; } return null; };
   const maybeAddBackground = async (primary) => { const wants = allowBackground && oracle(primary).includes("choose a background"); if (!wants) return null; const q = ["legal:commander", "type:background", "game:paper", identityToQuery(getCI(primary) || "wubrg")].join(" "); for (let i = 0; i < 10; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; return c; } return null; };
 
-  const fetchPool=async(ci)=>{
-    const base=`legal:commander game:paper ${identityToQuery(ci)} -is:funny`;
-    const mech = mechanics.length ? ` (${mechanics.map(k=>{
-        const tag=MECHANIC_TAGS.find(m=>m.key===k);
-        if(!tag) return "";
-        const parts=tag.matchers.map(m=>`o:"${m}"`).join(" or ");
-        return `(${parts})`;
+  const fetchPool = async (ci) => {
+    const base = `legal:commander game:paper ${identityToQuery(ci)} -is:funny`;
+    const mech = mechanics.length ? ` (${mechanics.map(k => {
+      const tag = MECHANIC_TAGS.find(m => m.key === k);
+      if (!tag) return "";
+      const parts = tag.matchers.map(m => `o:"${m}"`).join(" or ");
+      return `(${parts})`;
     }).join(" or ")})` : "";
-    const spellsQ=`${base} -type:land -type:background${mech}`;
-    const landsQ =`${base} type:land -type:basic`;
+    const spellsQ = `${base} -type:land -type:background${mech}`;
+    const landsQ = `${base} type:land -type:basic`;
 
-    const gather=async(q,b,pages=2)=>{
-        // On remet order: "random" pour une meilleure diversité
-        let page=await sf.search(q,{unique:"cards", order:"random"});
+    const gather = async (q, b, pages = 2) => {
+      let page = await sf.search(q, { unique: "cards", order: "random" });
+      b.push(...page.data);
+      for (let i = 1; i < pages && page.has_more; i++) {
+        await sleep(100);
+        page = await fetch(page.next_page).then(r => r.json());
         b.push(...page.data);
-        for(let i=1;i<pages && page.has_more;i++){
-            await sleep(100);
-            page=await fetch(page.next_page).then(r=>r.json());
-            b.push(...page.data);
-        }
+      }
     };
 
-    const spells=[], lands=[];
-    await gather(spellsQ,spells,2);
-    await gather(landsQ,lands,1);
+    const spells = [], lands = [];
+    await gather(spellsQ, spells, 2);
+    await gather(landsQ, lands, 1);
     return {
-        spells:distinctByName(spells).filter(isCommanderLegal),
-        lands:distinctByName(lands).filter(isCommanderLegal)
+      spells: distinctByName(spells).filter(isCommanderLegal),
+      lands: distinctByName(lands).filter(isCommanderLegal)
     };
-};
+  };
 
   async function buildLandCards(landsMap) { const out = []; for (const [n, q] of Object.entries(landsMap)) { try { const b = await bundleByName(n); out.push({ ...b, qty: q }); } catch { out.push({ name: n, qty: q, image: "", small: "", oracle_en: "", mana_cost: "", cmc: 0, prices: {}, scryfall_uri: "" }); } await sleep(60); } return out; }
 
@@ -138,10 +137,33 @@ export default function App() {
 
   const generate = async () => {
     setError(""); setDeck(null); setCommandersExtraInfo({}); setSpecialCards({ winCons: new Set(), gameChangers: new Set() });
+    setGenerationProgress({ active: true, step: 'Initialisation...', percent: 0 });
+
+    try {
+      setGenerationProgress({ active: true, step: 'Sélection du commandant...', percent: 10 });
+      const primary = await pickCommander(commanderMode === 'random' ? desiredCI : getCI(selectedCommanderCard));
+      let cmdrs = [primary];
+      const partner = await maybeAddPartner(primary);
+      const background = await maybeAddBackground(primary);
+      if (partner) cmdrs.push(partner);
+      else if (background) cmdrs.push(background);
+      let ci = getCI(primary);
+      if (cmdrs.length > 1) {
+        for (const c of cmdrs) ci = unionCI(ci, getCI(c));
+      }
+
+      const commandersFull = cmdrs.map(bundleCard);
+
+      const extraInfoPromises = commandersFull.map(c => fetchCommanderDeckCount(c.name));
+      Promise.all(extraInfoPromises).then(results => {
+          const newExtraInfo = {};
+          commandersFull.forEach((c, index) => { newExtraInfo[c.name] = { deckCount: results[index] }; });
+          setCommandersExtraInfo(newExtraInfo);
+      });
+
       setGenerationProgress({ active: true, step: 'Recherche des cartes...', percent: 40 });
       const pool = await fetchPool(ci);
 
-      // Cible initiale pour les sorts, basée sur le souhait de l'utilisateur pour les terrains
       const initialLandsTarget = Math.max(32, Math.min(40, targetLands));
       const spellsTarget = 100 - cmdrs.length - initialLandsTarget;
 
@@ -149,9 +171,12 @@ export default function App() {
         throw new Error("Pas assez de cartes trouvées pour construire un deck. Essayez des paramètres moins restrictifs.");
       }
       
-      const totalBudget = Number(deckBudget) || 0; let spent = cmdrs.reduce((s, c) => s + priceEUR(c), 0); if (totalBudget > 0 && spent > totalBudget) throw new Error(`Le budget (${totalBudget.toFixed(2)}€) est déjà dépassé par le coût des commandants (${spent.toFixed(2)}€).`);
+      const totalBudget = Number(deckBudget) || 0;
+      let spent = cmdrs.reduce((s, c) => s + priceEUR(c), 0);
+      if (totalBudget > 0 && spent > totalBudget) {
+        throw new Error(`Le budget (${totalBudget.toFixed(2)}€) est déjà dépassé par le coût des commandants (${spent.toFixed(2)}€).`);
+      }
 
-      // Sélection et équilibrage des sorts. Le nombre final peut être inférieur à la cible à cause du budget.
       setGenerationProgress({ active: true, step: 'Sélection des sorts...', percent: 60 });
       const spellsPref = sortByPreference(pool.spells);
       const banned = new Set(cmdrs.map(nameOf));
@@ -163,14 +188,10 @@ export default function App() {
       pickedSpells = balanced.picks;
       spent = balanced.spent;
 
-      // --- LOGIQUE CORRIGÉE ---
-      // 1. Calculer le nombre FINAL de terrains requis APRÈS que les sorts ont été choisis.
       const finalLandsCount = 100 - cmdrs.length - pickedSpells.length;
 
       setGenerationProgress({ active: true, step: 'Construction de la base de mana...', percent: 90 });
       const landsPref = sortByPreference(pool.lands);
-
-      // 2. Sélectionner les terrains non-basiques (8 à 10 semble raisonnable).
       const nonBasicsTarget = Math.min(10, Math.max(8, Math.floor(finalLandsCount / 3.5)));
       const chosenNonbasics = [];
       for (const nb of landsPref) {
@@ -180,15 +201,12 @@ export default function App() {
         chosenNonbasics.push(nb);
         spent += p;
       }
-
-      // 3. Calculer le nombre exact de terrains de base nécessaires et construire la manabase.
+      
       const basicsNeeded = finalLandsCount - chosenNonbasics.length;
       const landsMap = buildManaBase(ci, basicsNeeded);
       for (const nb of chosenNonbasics) {
         landsMap[nameOf(nb)] = (landsMap[nameOf(nb)] || 0) + 1;
       }
-      // La boucle "while (missing > 0)" devient inutile car le calcul est maintenant exact.
-
 
       const nonlandCards = pickedSpells.map(bundleCard);
       const landCards = await buildLandCards(landsMap);
@@ -200,13 +218,20 @@ export default function App() {
 
       setDeck({
         colorIdentity: ci,
-        commanders: cmdrs.map(nameOf), commandersFull,
+        commanders: cmdrs.map(nameOf),
+        commandersFull,
         nonlands: Object.fromEntries(pickedSpells.map(c => [nameOf(c), 1])),
         nonlandCards,
-        lands: landsMap, landCards,
-        budget: totalBudget, spent: Number(spent.toFixed(2)), balanceTargets: targets, balanceCounts: countCats(pickedSpells)
+        lands: landsMap,
+        landCards,
+        budget: totalBudget,
+        spent: Number(spent.toFixed(2)),
+        balanceTargets: targets,
+        balanceCounts: countCats(pickedSpells)
       });
-    }; catch (e) { setError(e.message || String(e)); } finally {
+    } catch (e) {
+      setError(e.message || String(e));
+    } finally {
       setGenerationProgress({ active: false, step: '', percent: 0 });
     }
   };
