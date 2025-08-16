@@ -92,20 +92,41 @@ export default function App() {
       default: break;
     }
 
-    // MODIFICATION: Construction de la requête plus robuste
-    const queryParts = [
-      'legal:commander',
-      'game:paper',
-      identityToQuery(ci),
-      '-is:funny',
-      bracketQuery
-    ];
-    const base = queryParts.filter(Boolean).join(' '); // Filtre les parties vides avant de joindre
+    const queryParts = ['legal:commander', 'game:paper', identityToQuery(ci), '-is:funny', bracketQuery];
+    const base = queryParts.filter(Boolean).join(' ');
 
     const mech = mechanics.length ? ` (${mechanics.map(k => { const tag = MECHANIC_TAGS.find(m => m.key === k); if (!tag) return ""; const parts = tag.matchers.map(m => `o:\"${m}\"`).join(" or "); return `(${parts})`; }).join(" or ")})` : "";
     const spellsQ = `${base} -type:land -type:background${mech}`;
     const landsQ = `${base} type:land -type:basic`;
-    const gather = async (q, b, pages = 2) => { let page = await sf.search(q, { unique: "cards", order: "edhrec" }); b.push(...page.data); for (let i = 1; i < pages && page.has_more; i++) { await sleep(100); page = await fetch(page.next_page).then(r => r.json()); b.push(...page.data); } };
+
+    // MODIFICATION: La fonction `gather` gère maintenant les erreurs 404
+    const gather = async (q, b, pages = 2) => {
+      try {
+        let page = await sf.search(q, { unique: "cards", order: "edhrec" });
+        if (page && page.data) {
+          b.push(...page.data);
+          for (let i = 1; i < pages && page.has_more; i++) {
+            await sleep(100);
+            const nextPageResponse = await fetch(page.next_page);
+            if (nextPageResponse.ok) {
+              page = await nextPageResponse.json();
+              if (page && page.data) {
+                b.push(...page.data);
+              }
+            } else {
+              break;
+            }
+          }
+        }
+      } catch (error) {
+        if (!error.message.includes("404")) {
+          console.error("Scryfall API error during gather:", error);
+          throw error; // Relance l'erreur si ce n'est pas une 404
+        }
+        // Si c'est une 404, on ne fait rien, ce qui signifie juste "pas de résultats".
+      }
+    };
+
     const spells = [], lands = [];
     await gather(spellsQ, spells, 2);
     await gather(landsQ, lands, 1);
