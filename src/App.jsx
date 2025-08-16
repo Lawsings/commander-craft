@@ -138,44 +138,57 @@ export default function App() {
 
   const generate = async () => {
     setError(""); setDeck(null); setCommandersExtraInfo({}); setSpecialCards({ winCons: new Set(), gameChangers: new Set() });
-    setGenerationProgress({ active: true, step: 'Initialisation...', percent: 0 });
-
-    try {
-      setGenerationProgress({ active: true, step: 'Sélection du commandant...', percent: 10 });
-      const primary = await pickCommander(commanderMode === 'random' ? desiredCI : getCI(selectedCommanderCard));
-      let cmdrs = [primary]; const partner = await maybeAddPartner(primary); const background = await maybeAddBackground(primary); if (partner) cmdrs.push(partner); else if (background) cmdrs.push(background);
-      let ci = getCI(primary); if (cmdrs.length > 1) for (const c of cmdrs) ci = unionCI(ci, getCI(c));
-
-      const commandersFull = cmdrs.map(bundleCard);
-
-      const extraInfoPromises = commandersFull.map(c => fetchCommanderDeckCount(c.name));
-      Promise.all(extraInfoPromises).then(results => {
-          const newExtraInfo = {};
-          commandersFull.forEach((c, index) => { newExtraInfo[c.name] = { deckCount: results[index] }; });
-          setCommandersExtraInfo(newExtraInfo);
-      });
-
       setGenerationProgress({ active: true, step: 'Recherche des cartes...', percent: 40 });
       const pool = await fetchPool(ci);
 
-      const landsTarget = Math.max(32, Math.min(40, targetLands));
-      const spellsTarget = 100 - cmdrs.length - landsTarget;
+      // Cible initiale pour les sorts, basée sur le souhait de l'utilisateur pour les terrains
+      const initialLandsTarget = Math.max(32, Math.min(40, targetLands));
+      const spellsTarget = 100 - cmdrs.length - initialLandsTarget;
+
       if (pool.spells.length < spellsTarget) {
         throw new Error("Pas assez de cartes trouvées pour construire un deck. Essayez des paramètres moins restrictifs.");
       }
-
+      
       const totalBudget = Number(deckBudget) || 0; let spent = cmdrs.reduce((s, c) => s + priceEUR(c), 0); if (totalBudget > 0 && spent > totalBudget) throw new Error(`Le budget (${totalBudget.toFixed(2)}€) est déjà dépassé par le coût des commandants (${spent.toFixed(2)}€).`);
 
+      // Sélection et équilibrage des sorts. Le nombre final peut être inférieur à la cible à cause du budget.
       setGenerationProgress({ active: true, step: 'Sélection des sorts...', percent: 60 });
-      const spellsPref = sortByPreference(pool.spells); const landsPref = sortByPreference(pool.lands);
-      const banned = new Set(cmdrs.map(nameOf)); let { picks: pickedSpells, cost: costAfterSpells } = greedyPickUnique(spellsPref, spellsTarget, banned, spent, totalBudget); spent = costAfterSpells;
+      const spellsPref = sortByPreference(pool.spells);
+      const banned = new Set(cmdrs.map(nameOf));
+      let { picks: pickedSpells, cost: costAfterSpells } = greedyPickUnique(spellsPref, spellsTarget, banned, spent, totalBudget);
+      spent = costAfterSpells;
 
       setGenerationProgress({ active: true, step: 'Équilibrage du deck...', percent: 75 });
-      const balanced = balanceSpells(pickedSpells, pool.spells, totalBudget, spent); pickedSpells = balanced.picks; spent = balanced.spent;
+      const balanced = balanceSpells(pickedSpells, pool.spells, totalBudget, spent);
+      pickedSpells = balanced.picks;
+      spent = balanced.spent;
+
+      // --- LOGIQUE CORRIGÉE ---
+      // 1. Calculer le nombre FINAL de terrains requis APRÈS que les sorts ont été choisis.
+      const finalLandsCount = 100 - cmdrs.length - pickedSpells.length;
 
       setGenerationProgress({ active: true, step: 'Construction de la base de mana...', percent: 90 });
-      const basicsNeeded = Math.max(landsTarget - Math.min(8, landsPref.length), 0); const landsMap = buildManaBase(ci, basicsNeeded); const chosenNonbasics = []; for (const nb of landsPref) { if (chosenNonbasics.length >= 8) break; const p = priceEUR(nb); if (totalBudget > 0 && (spent + p) > totalBudget) continue; chosenNonbasics.push(nb); spent += p; } for (const nb of chosenNonbasics) { landsMap[nameOf(nb)] = (landsMap[nameOf(nb)] || 0) + 1; }
-      const currentCount = cmdrs.length + pickedSpells.length + Object.values(landsMap).reduce((a, b) => a + b, 0); let missing = 100 - currentCount; const basicsByColor = { W: "Plains", U: "Island", B: "Swamp", R: "Mountain", G: "Forest" }; const firstBasic = (ci.split("")[0] && basicsByColor[ci.split("")[0]]) || "Wastes"; while (missing > 0) { landsMap[firstBasic] = (landsMap[firstBasic] || 0) + 1; missing--; }
+      const landsPref = sortByPreference(pool.lands);
+
+      // 2. Sélectionner les terrains non-basiques (8 à 10 semble raisonnable).
+      const nonBasicsTarget = Math.min(10, Math.max(8, Math.floor(finalLandsCount / 3.5)));
+      const chosenNonbasics = [];
+      for (const nb of landsPref) {
+        if (chosenNonbasics.length >= nonBasicsTarget) break;
+        const p = priceEUR(nb);
+        if (totalBudget > 0 && (spent + p) > totalBudget) continue;
+        chosenNonbasics.push(nb);
+        spent += p;
+      }
+
+      // 3. Calculer le nombre exact de terrains de base nécessaires et construire la manabase.
+      const basicsNeeded = finalLandsCount - chosenNonbasics.length;
+      const landsMap = buildManaBase(ci, basicsNeeded);
+      for (const nb of chosenNonbasics) {
+        landsMap[nameOf(nb)] = (landsMap[nameOf(nb)] || 0) + 1;
+      }
+      // La boucle "while (missing > 0)" devient inutile car le calcul est maintenant exact.
+
 
       const nonlandCards = pickedSpells.map(bundleCard);
       const landCards = await buildLandCards(landsMap);
