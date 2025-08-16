@@ -1,3 +1,4 @@
+// Fichier: src/App.jsx (modifié)
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCcw, Shuffle, Copy, Download, Upload, Settings2, Info, Sparkles, Trash2, Sun, Moon } from "lucide-react";
 
@@ -83,7 +84,42 @@ export default function App() {
   const greedyPickUnique = (sortedPool, need, banned, currentCost, budget) => { const picks = []; const taken = new Set(banned); let cost = currentCost; for (const c of sortedPool) { if (picks.length >= need) break; const n = nameOf(c); if (taken.has(n)) continue; const p = priceEUR(c); if (budget > 0 && (cost + p) > budget) continue; picks.push(c); taken.add(n); cost += p; } return { picks, cost }; };
   const buildManaBase = (ci, basicTarget) => { const colors = (ci || "").split(""); const basicsByColor = { W: "Plains", U: "Island", B: "Swamp", R: "Mountain", G: "Forest" }; if (colors.length === 0) return { Wastes: basicTarget }; const per = Math.floor(basicTarget / colors.length); let rem = basicTarget - per * colors.length; const lands = {}; for (const c of colors) { const n = basicsByColor[c]; lands[n] = per + (rem > 0 ? 1 : 0); rem--; } return lands; };
   const countCats = (cards) => cards.reduce((a, c) => ({ ramp: a.ramp + (RE.RAMP.test(oracle(c)) || ((c.type_line || '').toLowerCase().includes('artifact') && oracle(c).includes('add one mana')) ? 1 : 0), draw: a.draw + (RE.DRAW.test(oracle(c)) ? 1 : 0), removal: a.removal + (RE.REMOVAL.test(oracle(c)) ? 1 : 0), wraths: a.wraths + (RE.WRATHS.test(oracle(c)) ? 1 : 0) }), { ramp: 0, draw: 0, removal: 0, wraths: 0 });
-  const balanceSpells = (picks, pool, budget, spent) => { const TARGETS = { ramp: targets.ramp.min, draw: targets.draw.min, removal: targets.removal.min, wraths: targets.wraths.min }; const byName = new Set(picks.map(nameOf)); const counts = countCats(picks); const sorted = sortByPreference(pool); const fits = (cat, c) => (cat === 'ramp' && RE.RAMP.test(oracle(c))) || (cat === 'draw' && RE.DRAW.test(oracle(c))) || (cat === 'removal' && RE.REMOVAL.test(oracle(c))) || (cat === 'wraths' && RE.WRATHS.test(oracle(c))); const res = [...picks]; for (const cat of Object.keys(TARGETS)) { if (counts[cat] >= TARGETS[cat]) continue; for (const c of sorted) { const n = nameOf(c); if (byName.has(n)) continue; const p = priceEUR(c); if (budget > 0 && (spent + p) > budget) continue; if (!fits(cat, c)) continue; const idx = res.findIndex(x => !fits(cat, x)); if (idx >= 0) { byName.delete(nameOf(res[idx])); res[idx] = c; byName.add(n); counts[cat]++; spent += p; } if (counts[cat] >= TARGETS[cat]) break; } } return { picks: res, spent, targets: TARGETS, counts }; };
+  
+  const balanceSpells = (picks, pool, budget, spent) => {
+    const TARGETS = { ramp: targets.ramp.min, draw: targets.draw.min, removal: targets.removal.min, wraths: targets.wraths.min };
+    const byName = new Set(picks.map(nameOf));
+    const counts = countCats(picks);
+    const sorted = sortByPreference(pool);
+    const fits = (cat, c) => (cat === 'ramp' && RE.RAMP.test(oracle(c))) || (cat === 'draw' && RE.DRAW.test(oracle(c))) || (cat === 'removal' && RE.REMOVAL.test(oracle(c))) || (cat === 'wraths' && RE.WRATHS.test(oracle(c)));
+    const res = [...picks];
+    let currentSpent = spent;
+
+    for (const cat of Object.keys(TARGETS)) {
+        if (counts[cat] >= TARGETS[cat]) continue;
+        for (const c of sorted) {
+            const n = nameOf(c);
+            if (byName.has(n)) continue;
+            if (!fits(cat, c)) continue;
+
+            const p = priceEUR(c);
+            const idx = res.findIndex(x => !fits(cat, x));
+
+            if (idx >= 0) {
+                const oldCard = res[idx];
+                if (budget > 0 && (currentSpent - priceEUR(oldCard) + p) > budget) continue;
+
+                byName.delete(nameOf(oldCard));
+                res[idx] = c;
+                byName.add(n);
+                counts[cat]++;
+                currentSpent = currentSpent - priceEUR(oldCard) + p;
+            }
+            if (counts[cat] >= TARGETS[cat]) break;
+        }
+    }
+    return { picks: res, spent: currentSpent, targets: TARGETS, counts: countCats(res) };
+  };
+
   const pickCommander = async (ci) => { if (commanderMode === 'select' && selectedCommanderCard) return selectedCommanderCard; const q = ["legal:commander", "is:commander", "game:paper", "-is:funny", ci ? identityToQuery(ci) : "", "(type:\"legendary creature\" or (type:planeswalker and o:\"can be your commander\") or type:background)"].filter(Boolean).join(" "); for (let i = 0; i < 6; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; if (oracle(c).includes("companion")) continue; return c; } throw new Error("Impossible de trouver un commandant aléatoire conforme."); };
   const maybeAddPartner = async (primary) => { const has = (oracle(primary).includes("partner") || (primary.keywords || []).some(k => k.toLowerCase().includes("partner"))); if (!allowPartner || !has) return null; const q = ["legal:commander", "is:commander", "game:paper", "-is:funny", "(keyword:partner or o:\"Partner with\")"].join(" "); for (let i = 0; i < 12; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; if (nameOf(c) === nameOf(primary)) continue; return c; } return null; };
   const maybeAddBackground = async (primary) => { const wants = allowBackground && oracle(primary).includes("choose a background"); if (!wants) return null; const q = ["legal:commander", "type:background", "game:paper", identityToQuery(getCI(primary) || "wubrg")].join(" "); for (let i = 0; i < 10; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; return c; } return null; };
@@ -100,25 +136,28 @@ export default function App() {
     const landsQ = `${base} type:land -type:basic`;
 
     const gather = async (q, b, pages = 2) => {
-      // On utilise l'option `order: "edhrec"` pour les sorts pour avoir les plus pertinents en premier
-      // et `order: "cmc"` pour les terrains pour avoir les plus efficaces.
       const order = q.includes("-type:land") ? "edhrec" : "cmc";
       let page = await sf.search(q, { unique: "cards", order: order });
       if (page && page.data) b.push(...page.data);
       for (let i = 1; i < pages && page && page.has_more; i++) {
         await sleep(100);
-        const nextPageResponse = await fetch(page.next_page);
-        if (nextPageResponse.ok) {
-            page = await nextPageResponse.json();
-            if (page && page.data) b.push(...page.data);
-        } else {
-            break; // Stop if there is an error fetching next page
+        try {
+            const nextPageResponse = await fetch(page.next_page);
+            if (nextPageResponse.ok) {
+                page = await nextPageResponse.json();
+                if (page && page.data) b.push(...page.data);
+            } else {
+                break; 
+            }
+        } catch (e) {
+            console.error("Failed to fetch next page:", e);
+            break;
         }
       }
     };
 
     const spells = [], lands = [];
-    await gather(spellsQ, spells, 4); // Fetch more pages for spells
+    await gather(spellsQ, spells, 4);
     await gather(landsQ, lands, 2);
     return {
       spells: distinctByName(spells).filter(isCommanderLegal),
@@ -187,7 +226,26 @@ export default function App() {
       let { picks: pickedSpells, cost: costAfterSpells } = greedyPickUnique(spellsPref, spellsTarget, banned, spent, totalBudget);
       spent = costAfterSpells;
 
+      // === DEBUT DU PATCH ===
+      // S'assurer qu'on a le bon nombre de sorts, même si le budget est serré ou le pool limité.
+      if (pickedSpells.length < spellsTarget) {
+        const alreadyPickedNames = new Set(pickedSpells.map(nameOf));
+        const cheapestSpells = pool.spells
+          .filter(c => !banned.has(nameOf(c)) && !alreadyPickedNames.has(nameOf(c)))
+          .sort((a, b) => priceEUR(a) - priceEUR(b));
+        
+        while (pickedSpells.length < spellsTarget && cheapestSpells.length > 0) {
+          const spellToAdd = cheapestSpells.shift();
+          if (spellToAdd) {
+            pickedSpells.push(spellToAdd);
+          }
+        }
+      }
+      // === FIN DU PATCH ===
+
       setGenerationProgress({ active: true, step: 'Équilibrage du deck...', percent: 75 });
+      // Recalculer le coût avant l'équilibrage
+      spent = cmdrs.reduce((s, c) => s + priceEUR(c), 0) + pickedSpells.reduce((s, c) => s + priceEUR(c), 0);
       const balanced = balanceSpells(pickedSpells, pool.spells, totalBudget, spent);
       pickedSpells = balanced.picks;
       spent = balanced.spent;
@@ -209,8 +267,7 @@ export default function App() {
       
       const basicsNeeded = finalLandsCount - chosenNonbasics.length;
       if (basicsNeeded < 0) {
-        // Should not happen with this logic, but as a safeguard
-        throw new Error("Erreur de calcul de la base de mana.");
+        throw new Error("Erreur de calcul de la base de mana (trop de terrains non-bases).");
       }
       const landsMap = buildManaBase(ci, basicsNeeded);
       for (const nb of chosenNonbasics) {
