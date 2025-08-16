@@ -2,9 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/*
-  TOUT LE CONTENU DE VOTRE ANCIEN App.css EST COLLÉ ICI.
-*/
 :root {
   --halo: #171717;
   --bg0: #000;
@@ -55,6 +52,12 @@ body,
   border-radius: 16px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35) inset, 0 20px 40px rgba(0, 0, 0, 0.35);
 }
+
+/* MODIFICATION : Supprime les ombres en mode clair */
+[data-theme="light"] .glass {
+  box-shadow: none;
+}
+
 .glass-strong {
   background: var(--panel-strong);
 }
@@ -215,7 +218,6 @@ body,
     background-color: var(--btn-hover-bg);
 }
 
-/* NOUVELLE CLASSE POUR LA MODALE */
 .modal-content {
   background-color: var(--bg1);
   border: 1px solid var(--border);

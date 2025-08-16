@@ -190,7 +190,6 @@ export default function App() {
               <div className="mt-4">
                 <span className="muted text-sm">Identité couleur (optionnel)</span>
                 <div className="flex gap-2 mt-2 flex-wrap items-center">
-                  {/* Bouton "Uncolor" / Réinitialiser */}
                   <button className="btn p-2.5" onClick={() => setDesiredCI("")} title="Aucune couleur (Réinitialiser)">
                      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="12" cy="12" r="10"/>
@@ -259,32 +258,21 @@ export default function App() {
               <input type="checkbox" checked={allowBackground} onChange={e => setAllowBackground(e.target.checked)} />
             </div>
 
-            <button className="mt-5 w-full btn-primary justify-center" disabled={loading} onClick={generate}>
-              {loading ? (<RefreshCcw className="h-4 w-4 animate-spin" />) : (<Shuffle className="h-4 w-4" />)} {loading ? "Génération..." : "Générer un deck"}
-            </button>
-
-            {error && <p className="text-sm" style={{ color: '#ffb4c2' }}>{error}</p>}
-
-            <div className="text-xs muted flex items-start gap-2 mt-3">
-              <Info className="h-4 w-4 mt-0.5" />
-              <p>Règles EDH respectées (100 cartes, singleton sauf bases, identité couleur, légalités). Budget heuristique glouton.</p>
-            </div>
-          </div>
-
-          <div className="lg:col-span-2 space-y-8">
-            <div className="glass p-6">
-              <div className="flex items-center gap-2 mb-4"><Upload className="h-5 w-5" /><h2 className="font-medium">Collection personnelle (optionnel)</h2></div>
+            {/* SECTION COLLECTION PERSONNELLE DÉPLACÉE ICI */}
+            <hr className="my-6 border-white/10" />
+            <div>
+              <div className="flex items-center gap-2 mb-4"><Upload className="h-5 w-5"/><h2 className="font-medium">Collection personnelle (optionnel)</h2></div>
               <p className="text-sm muted">Importe un ou plusieurs fichiers pour prioriser tes cartes lors de la génération.</p>
-              <div className="mt-3"><FileDrop onFiles={async (files) => { for (const f of files) { await handleCollectionFile(f); } }} /></div>
+              <div className="mt-3"><FileDrop onFiles={async (files)=>{ for(const f of files){ await handleCollectionFile(f); } }}/></div>
               <div className="mt-3 text-sm">
-                {uploadedFiles.length > 0 ? (
+                {uploadedFiles.length>0 ? (
                   <div className="space-y-2">
                     <div className="muted text-xs">Fichiers importés ({uploadedFiles.length}) :</div>
                     <ul className="grid md:grid-cols-2 gap-2">
-                      {uploadedFiles.map(f => (
+                      {uploadedFiles.map(f=> (
                         <li key={f.id} className="flex items-center justify-between glass-strong rounded-lg px-3 py-1.5">
                           <span className="truncate" title={f.name}>{f.name}</span>
-                          <button className="btn" onClick={() => removeUploadedFile(f.id)} title="Supprimer ce fichier"><Trash2 className="h-4 w-4" /></button>
+                          <button className="btn" onClick={()=>removeUploadedFile(f.id)} title="Supprimer ce fichier"><Trash2 className="h-4 w-4"/></button>
                         </li>
                       ))}
                     </ul>
@@ -297,79 +285,98 @@ export default function App() {
               </div>
             </div>
 
+            <button className="mt-6 w-full btn-primary justify-center" disabled={loading} onClick={generate}>
+              {loading? (<RefreshCcw className="h-4 w-4 animate-spin"/>):(<Shuffle className="h-4 w-4"/>)} {loading?"Génération...":"Générer un deck"}
+            </button>
+
+            {error && <p className="text-sm mt-3" style={{color:'#ffb4c2'}}>{error}</p>}
+
+            <div className="text-xs muted flex items-start gap-2 mt-3">
+              <Info className="h-4 w-4 mt-0.5"/>
+              <p>Règles EDH respectées (100 cartes, singleton sauf bases, identité couleur, légalités). Budget heuristique glouton.</p>
+            </div>
+          </div>
+
+          {/* Right column */}
+          <div className="lg:col-span-2 space-y-8">
+            {/* Editable balance targets */}
             <div className="glass p-6">
               <h3 className="font-medium mb-3">Cibles d’équilibrage (éditables)</h3>
               <div className="grid md:grid-cols-2 gap-4 text-sm">
-                {["ramp", "draw", "removal", "wraths"].map(cat => (
+                {["ramp","draw","removal","wraths"].map(cat=> (
                   <div key={cat} className="flex items-center gap-2">
                     <span className="w-28 capitalize">{cat}</span>
                     <label className="text-xs muted">Min</label>
-                    <input type="number" className="w-16 input px-2 py-1" value={targets[cat].min} min={0} max={99} onChange={e => setTargets(prev => ({ ...prev, [cat]: { ...prev[cat], min: Number(e.target.value) || 0 } }))} />
+                    <input type="number" className="w-16 input px-2 py-1" value={targets[cat].min} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], min:Number(e.target.value)||0}}))}/>
                     <label className="text-xs muted">Max</label>
-                    <input type="number" className="w-16 input px-2 py-1" value={targets[cat].max} min={0} max={99} onChange={e => setTargets(prev => ({ ...prev, [cat]: { ...prev[cat], max: Number(e.target.value) || 0 } }))} />
+                    <input type="number" className="w-16 input px-2 py-1" value={targets[cat].max} min={0} max={99} onChange={e=>setTargets(prev=>({...prev, [cat]:{...prev[cat], max:Number(e.target.value)||0}}))}/>
                   </div>
                 ))}
               </div>
               <p className="text-xs muted mt-2">L’algo vise le <b>min</b> comme plancher; le max est indicatif pour l’affichage.</p>
             </div>
 
+            {/* Result */}
             <div className="glass p-6">
-              <div className="flex items-center gap-2 mb-4"><Sparkles className="h-5 w-5" /><h2 className="font-medium">Résultat</h2></div>
+              <div className="flex items-center gap-2 mb-4"><Sparkles className="h-5 w-5"/><h2 className="font-medium">Résultat</h2></div>
               {!deck ? (
                 <div className="text-sm muted">Configure les options puis clique « Générer un deck ».</div>
               ) : (
                 <div className="space-y-6">
+                  {/* Commander(s) */}
                   <div ref={commanderSectionRef} className="section-anchor">
-                    <h3 className="text-lg font-medium">Commandant{deck.commanders.length > 1 ? 's' : ''} ({deck.commanders.length})</h3>
+                    <h3 className="text-lg font-medium">Commandant{deck.commanders.length>1?'s':''} ({deck.commanders.length})</h3>
                     <div className="mt-2 grid md:grid-cols-2 gap-3">
-                      {deck.commandersFull?.map((c, i) => {
+                      {deck.commandersFull?.map((c,i)=> {
                         const owned = isOwned(c.name);
                         return (
                           <div key={i} className="glass-strong rounded-lg p-3 flex gap-3">
                             {c.small ? (
-                              <img src={c.small} alt={c.name} className="w-20 h-28 object-cover rounded cursor-pointer" onClick={() => { setModalCard(c); setModalOwned(owned); setShowModal(true); }} />
-                            ) : (<div className="w-20 h-28 glass-strong rounded" />)}
+                              <img src={c.small} alt={c.name} className="w-20 h-28 object-cover rounded cursor-pointer" onClick={()=>{setModalCard(c); setModalOwned(owned); setShowModal(true);}}/>
+                            ) : (<div className="w-20 h-28 glass-strong rounded"/>) }
                             <div className="min-w-0">
-                              <button className="text-left font-medium hover:underline flex items-center gap-1" onClick={() => { setModalCard(c); setModalOwned(owned); setShowModal(true); }}>
+                              <button className="text-left font-medium hover:underline flex items-center gap-1" onClick={()=>{setModalCard(c); setModalOwned(owned); setShowModal(true);}}>
                                 <span className="truncate">{c.name}</span>
-                                {owned && (<span style={{ color: 'limegreen', fontWeight: 'bold' }} title="Carte présente dans votre collection">✓</span>)}
+                                {owned && (<span style={{color:'limegreen',fontWeight:'bold'}} title="Carte présente dans votre collection">✓</span>)}
                               </button>
-                              {c.mana_cost && <div className="text-xs muted mt-0.5"><ManaCost cost={c.mana_cost} /></div>}
+                              {c.mana_cost && <div className="text-xs muted mt-0.5"><ManaCost cost={c.mana_cost}/></div>}
                               {c.oracle_en && (
-                                <div className="text-xs mt-1" style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                                <div className="text-xs mt-1" style={{display:'-webkit-box', WebkitLineClamp:3, WebkitBoxOrient:'vertical', overflow:'hidden'}}>
                                   {c.oracle_en}
                                 </div>
                               )}
-                              <div className="text-xs muted mt-1">Prix estimé: {(Number(c.prices?.eur) || Number(c.prices?.eur_foil) || 0).toFixed(2)}€</div>
+                              <div className="text-xs muted mt-1">Prix estimé: {(Number(c.prices?.eur)||Number(c.prices?.eur_foil)||0).toFixed(2)}€</div>
                             </div>
                           </div>
                         );
                       })}
                     </div>
-                    <p className="muted text-xs mt-1">Identité: {deck.colorIdentity || "(Colorless)"} • Taille: {deckSize} cartes • Coût estimé: {deck.spent?.toFixed(2)}€{deck.budget ? ` / Budget: ${deck.budget}€` : ''}</p>
+                    <p className="muted text-xs mt-1">Identité: {deck.colorIdentity || "(Colorless)"} • Taille: {deckSize} cartes • Coût estimé: {deck.spent?.toFixed(2)}€{deck.budget?` / Budget: ${deck.budget}€`:''}</p>
                   </div>
 
+                  {/* Balance indicators */}
                   <div className="grid md:grid-cols-2 gap-4">
-                    <Progress label="Ramp" value={deck.balanceCounts?.ramp || 0} targetMin={targets.ramp.min} targetMax={targets.ramp.max} />
-                    <Progress label="Pioche" value={deck.balanceCounts?.draw || 0} targetMin={targets.draw.min} targetMax={targets.draw.max} />
-                    <Progress label="Anti-bêtes / Answers" value={deck.balanceCounts?.removal || 0} targetMin={targets.removal.min} targetMax={targets.removal.max} />
-                    <Progress label="Wraths" value={deck.balanceCounts?.wraths || 0} targetMin={targets.wraths.min} targetMax={targets.wraths.max} />
+                    <Progress label="Ramp" value={deck.balanceCounts?.ramp||0} targetMin={targets.ramp.min} targetMax={targets.ramp.max}/>
+                    <Progress label="Pioche" value={deck.balanceCounts?.draw||0} targetMin={targets.draw.min} targetMax={targets.draw.max}/>
+                    <Progress label="Anti-bêtes / Answers" value={deck.balanceCounts?.removal||0} targetMin={targets.removal.min} targetMax={targets.removal.max}/>
+                    <Progress label="Wraths" value={deck.balanceCounts?.wraths||0} targetMin={targets.wraths.min} targetMax={targets.wraths.max}/>
                   </div>
 
+                  {/* Non-land spells grouped by primary type */}
                   <div>
-                    <h3 className="text-lg font-medium">Sorts non-terrains ({Object.values(deck.nonlands).reduce((a, b) => a + b, 0)})</h3>
-                    {Object.keys(nonlandsByType).length === 0 ? (
+                    <h3 className="text-lg font-medium">Sorts non-terrains ({Object.values(deck.nonlands).reduce((a,b)=>a+b,0)})</h3>
+                    {Object.keys(nonlandsByType).length===0 ? (
                       <p className="text-sm muted mt-1">Aucun sort détecté.</p>
                     ) : (
                       <div className="space-y-4 mt-2">
-                        {Object.entries(nonlandsByType).map(([label, cards]) => (
+                        {Object.entries(nonlandsByType).map(([label, cards])=> (
                           <div key={label}>
                             <h4 className="text-sm muted mb-2">{label} ({cards.length})</h4>
                             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                              {cards.map((c, idx) => {
+                              {cards.map((c,idx)=> {
                                 const owned = isOwned(c.name);
                                 return (
-                                  <CardTile key={c.name + idx} card={c} owned={owned} onOpen={(cc, ow) => { setModalCard(cc); setModalOwned(ow); setShowModal(true); }} />
+                                  <CardTile key={c.name+idx} card={c} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>
                                 );
                               })}
                             </div>
@@ -379,26 +386,28 @@ export default function App() {
                     )}
                   </div>
 
+                  {/* Lands as tiles (with modal) */}
                   <div>
-                    <h3 className="text-lg font-medium">Terrains ({Object.values(deck.lands).reduce((a, b) => a + b, 0)})</h3>
-                    {Array.isArray(deck.landCards) && deck.landCards.length > 0 ? (
+                    <h3 className="text-lg font-medium">Terrains ({Object.values(deck.lands).reduce((a,b)=>a+b,0)})</h3>
+                    {Array.isArray(deck.landCards) && deck.landCards.length>0 ? (
                       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">
-                        {deck.landCards.map((lc, idx) => {
+                        {deck.landCards.map((lc,idx)=> {
                           const owned = isOwned(lc.name);
                           return (
-                            <CardTile key={lc.name + idx} card={lc} qty={lc.qty} owned={owned} onOpen={(cc, ow) => { setModalCard(cc); setModalOwned(ow); setShowModal(true); }} />
+                            <CardTile key={lc.name+idx} card={lc} qty={lc.qty} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>
                           );
                         })}
                       </div>
                     ) : (
                       <div className="grid md:grid-cols-2 gap-2 mt-2 text-sm">
-                        {Object.entries(deck.lands).map(([n, q]) => (
+                        {Object.entries(deck.lands).map(([n,q]) => (
                           <div key={n} className="flex justify-between glass-strong rounded-lg px-3 py-1.5"><span>{n}</span><span className="muted">x{q}</span></div>
                         ))}
                       </div>
                     )}
                   </div>
 
+                  {/* Statistics */}
                   <div className="glass-strong rounded-xl p-4">
                     <h3 className="font-medium mb-3">Statistiques</h3>
                     {stats ? (
@@ -409,14 +418,14 @@ export default function App() {
                         </div>
                         <div className="glass rounded-lg p-3">
                           <div className="muted text-xs">Coût estimé du deck</div>
-                          <div className="text-lg font-semibold">{(deck.spent || 0).toFixed(2)}€</div>
+                          <div className="text-lg font-semibold">{(deck.spent||0).toFixed(2)}€</div>
                         </div>
                         <div className="glass rounded-lg p-3">
                           <div className="muted text-xs">CMC moyen (hors terrains)</div>
                           <div className="text-lg font-semibold">{stats.avgCmc}</div>
                         </div>
                         <div className="md:col-span-3 grid md:grid-cols-4 gap-2">
-                          {Object.entries(stats.typeCounts).map(([k, v]) => (
+                          {Object.entries(stats.typeCounts).map(([k,v])=> (
                             <div key={k} className="glass rounded-lg p-3 flex items-center justify-between"><span className="muted text-xs">{k}</span><span className="font-medium">{v}</span></div>
                           ))}
                         </div>
@@ -426,11 +435,12 @@ export default function App() {
                     )}
                   </div>
 
+                  {/* Bottom actions: stack on mobile for consistency */}
                   <div className="grid grid-cols-1 lg:flex lg:flex-wrap lg:gap-2 gap-2">
-                    <button className="btn" onClick={copyList}><Copy className="inline-block h-4 w-4" />Copier</button>
-                    <button className="btn" onClick={exportJson}><Download className="inline-block h-4 w-4" />JSON</button>
-                    <button className="btn-primary" onClick={exportTxt}><Download className="inline-block h-4 w-4" />TXT</button>
-                    <button className="btn" onClick={reequilibrer} disabled={loading}><Sparkles className="inline-block h-4 w-4" />Rééquilibrer</button>
+                    <button className="btn" onClick={copyList}><Copy className="inline-block h-4 w-4"/>Copier</button>
+                    <button className="btn" onClick={exportJson}><Download className="inline-block h-4 w-4"/>JSON</button>
+                    <button className="btn-primary" onClick={exportTxt}><Download className="inline-block h-4 w-4"/>TXT</button>
+                    <button className="btn" onClick={reequilibrer} disabled={loading}><Sparkles className="inline-block h-4 w-4"/>Rééquilibrer</button>
                   </div>
                 </div>
               )}
