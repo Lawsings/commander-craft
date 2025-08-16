@@ -2,7 +2,7 @@
 import React from 'react';
 import ManaCost from './ManaCost.jsx';
 
-export default function CardTile({ card, onOpen, qty, owned }) {
+export default function CardTile({ card, onOpen, qty, owned, isWinCon, isGameChanger }) {
   return (
     <button className="relative glass-strong rounded-lg p-2 flex gap-3 text-left hover:bg-white/15" onClick={() => onOpen(card, owned)}>
       {qty ? <span className="badge">x{qty}</span> : null}
@@ -19,6 +19,11 @@ export default function CardTile({ card, onOpen, qty, owned }) {
           )}
         </div>
         {card.mana_cost && <div className="text-xs muted"><ManaCost cost={card.mana_cost} /></div>}
+        {/* Indicateurs pour Win Con et Game Changer */}
+        <div className="flex flex-col items-start mt-1">
+          {isWinCon && <div className="special-card-indicator win-con">★ Win Con</div>}
+          {isGameChanger && <div className="special-card-indicator game-changer">♦ Game Changer</div>}
+        </div>
       </div>
     </button>
   );

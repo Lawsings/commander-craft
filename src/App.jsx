@@ -7,7 +7,7 @@ import {
   MECHANIC_TAGS, RE, sleep, ciMask, identityToQuery, nameOf, oracle,
   isCommanderLegal, getCI, unionCI, priceEUR, edhrecScore, distinctByName,
   sf, bundleCard, bundleByName, primaryTypeLabel, parseCollectionFile,
-  fetchCommanderDeckCount
+  fetchCommanderDeckCount, WIN_CONDITIONS, GAME_CHANGERS
 } from './utils.js';
 import { useCommanderResolution } from './hooks.js';
 import ManaCost from './components/ManaCost.jsx';
@@ -17,6 +17,18 @@ import Progress from './components/Progress.jsx';
 import CardTile from './components/CardTile.jsx';
 import CardModal from './components/CardModal.jsx';
 
+// Nouveau composant pour la modale de progression
+const GenerationModal = ({ progress }) => (
+  <div className="generation-modal-overlay">
+    <div className="generation-modal-content">
+      <h3 className="text-lg font-medium">Construction de votre deck...</h3>
+      <p className="text-sm muted mt-2">{progress.step} ({progress.percent}%)</p>
+      <div className="generation-progress-bar-bg">
+        <div className="generation-progress-bar-fill" style={{ width: `${progress.percent}%` }} />
+      </div>
+    </div>
+  </div>
+);
 
 export default function App() {
   // THEME
@@ -35,7 +47,6 @@ export default function App() {
   }, [theme]);
 
   // UI state
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [deck, setDeck] = useState(null);
   const [commanderMode, setCommanderMode] = useState("random");
@@ -56,6 +67,8 @@ export default function App() {
   const [modalCard, setModalCard] = useState(null);
   const [modalOwned, setModalOwned] = useState(false);
   const [commandersExtraInfo, setCommandersExtraInfo] = useState({});
+  const [specialCards, setSpecialCards] = useState({ winCons: new Set(), gameChangers: new Set() });
+  const [generationProgress, setGenerationProgress] = useState({ active: false, step: '', percent: 0 });
 
   const commanderSectionRef = useRef(null);
   const IDENTITY_COLOR_ORDER = ['W', 'B', 'U', 'G', 'R'];
@@ -113,9 +126,27 @@ export default function App() {
 
   async function buildLandCards(landsMap) { const out = []; for (const [n, q] of Object.entries(landsMap)) { try { const b = await bundleByName(n); out.push({ ...b, qty: q }); } catch { out.push({ name: n, qty: q, image: "", small: "", oracle_en: "", mana_cost: "", cmc: 0, prices: {}, scryfall_uri: "" }); } await sleep(60); } return out; }
 
+  const identifySpecialCards = (cards) => {
+    const winCons = new Set();
+    const gameChangers = new Set();
+    cards.forEach(card => {
+      const cardName = nameOf(card).toLowerCase();
+      if (WIN_CONDITIONS.has(cardName)) {
+        winCons.add(nameOf(card));
+      }
+      if (GAME_CHANGERS.has(cardName) || RE.WRATHS.test(oracle(card))) {
+        gameChangers.add(nameOf(card));
+      }
+    });
+    setSpecialCards({ winCons, gameChangers });
+  };
+
   const generate = async () => {
-    setError(""); setLoading(true); setDeck(null); setCommandersExtraInfo({});
+    setError(""); setDeck(null); setCommandersExtraInfo({}); setSpecialCards({ winCons: new Set(), gameChangers: new Set() });
+    setGenerationProgress({ active: true, step: 'Initialisation...', percent: 0 });
+
     try {
+      setGenerationProgress({ active: true, step: 'Sélection du commandant...', percent: 10 });
       const primary = await pickCommander(commanderMode === 'random' ? desiredCI : getCI(selectedCommanderCard));
       let cmdrs = [primary]; const partner = await maybeAddPartner(primary); const background = await maybeAddBackground(primary); if (partner) cmdrs.push(partner); else if (background) cmdrs.push(background);
       let ci = getCI(primary); if (cmdrs.length > 1) for (const c of cmdrs) ci = unionCI(ci, getCI(c));
@@ -129,17 +160,33 @@ export default function App() {
           setCommandersExtraInfo(newExtraInfo);
       });
 
+      setGenerationProgress({ active: true, step: 'Recherche des cartes...', percent: 40 });
       const pool = await fetchPool(ci);
+      if (pool.spells.length < 60) {
+        throw new Error("Pas assez de cartes trouvées pour construire un deck. Essayez des paramètres moins restrictifs.");
+      }
+
       const totalBudget = Number(deckBudget) || 0; let spent = cmdrs.reduce((s, c) => s + priceEUR(c), 0); if (totalBudget > 0 && spent > totalBudget) throw new Error(`Le budget (${totalBudget.toFixed(2)}€) est déjà dépassé par le coût des commandants (${spent.toFixed(2)}€).`);
       const total = 100; const landsTarget = Math.max(32, Math.min(40, targetLands)); const spellsTarget = total - cmdrs.length - landsTarget;
+
+      setGenerationProgress({ active: true, step: 'Sélection des sorts...', percent: 60 });
       const spellsPref = sortByPreference(pool.spells); const landsPref = sortByPreference(pool.lands);
       const banned = new Set(cmdrs.map(nameOf)); let { picks: pickedSpells, cost: costAfterSpells } = greedyPickUnique(spellsPref, spellsTarget, banned, spent, totalBudget); spent = costAfterSpells;
+
+      setGenerationProgress({ active: true, step: 'Équilibrage du deck...', percent: 75 });
       const balanced = balanceSpells(pickedSpells, pool.spells, totalBudget, spent); pickedSpells = balanced.picks; spent = balanced.spent;
+
+      setGenerationProgress({ active: true, step: 'Construction de la base de mana...', percent: 90 });
       const basicsNeeded = Math.max(landsTarget - Math.min(8, landsPref.length), 0); const landsMap = buildManaBase(ci, basicsNeeded); const chosenNonbasics = []; for (const nb of landsPref) { if (chosenNonbasics.length >= 8) break; const p = priceEUR(nb); if (totalBudget > 0 && (spent + p) > totalBudget) continue; chosenNonbasics.push(nb); spent += p; } for (const nb of chosenNonbasics) { landsMap[nameOf(nb)] = (landsMap[nameOf(nb)] || 0) + 1; }
       const currentCount = cmdrs.length + pickedSpells.length + Object.values(landsMap).reduce((a, b) => a + b, 0); let missing = 100 - currentCount; const basicsByColor = { W: "Plains", U: "Island", B: "Swamp", R: "Mountain", G: "Forest" }; const firstBasic = (ci.split("")[0] && basicsByColor[ci.split("")[0]]) || "Wastes"; while (missing > 0) { landsMap[firstBasic] = (landsMap[firstBasic] || 0) + 1; missing--; }
 
       const nonlandCards = pickedSpells.map(bundleCard);
       const landCards = await buildLandCards(landsMap);
+
+      identifySpecialCards([...commandersFull, ...nonlandCards]);
+
+      setGenerationProgress({ active: true, step: 'Finalisation...', percent: 100 });
+      await sleep(500); // Petite pause pour que l'utilisateur voie le 100%
 
       setDeck({
         colorIdentity: ci,
@@ -149,17 +196,21 @@ export default function App() {
         lands: landsMap, landCards,
         budget: totalBudget, spent: Number(spent.toFixed(2)), balanceTargets: targets, balanceCounts: countCats(pickedSpells)
       });
-    } catch (e) { setError(e.message || String(e)); } finally { setLoading(false); }
+    } catch (e) { setError(e.message || String(e)); } finally {
+      setGenerationProgress({ active: false, step: '', percent: 0 });
+    }
   };
 
   useEffect(() => {
-    if (!deck) return;
-    const isSmall = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(max-width: 767px)').matches;
-    if (!isSmall) return;
-    const el = commanderSectionRef.current;
-    if (!el) return;
-    const prefersReduced = typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (!prefersReduced) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); } else { el.scrollIntoView(); }
+    if (deck && commanderSectionRef.current) {
+      const isSmall = window.matchMedia('(max-width: 767px)').matches;
+      const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      commanderSectionRef.current.scrollIntoView({
+        behavior: prefersReduced ? 'auto' : 'smooth',
+        block: 'start'
+      });
+    }
   }, [deck]);
 
   const download = (filename, text) => { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain' })); a.download = filename; document.body.appendChild(a); a.click(); a.remove(); };
@@ -196,6 +247,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen">
+      {generationProgress.active && <GenerationModal progress={generationProgress} />}
       <div className="max-w-7xl mx-auto px-6 py-10">
         <header className="header-wrap lg:flex lg:items-center lg:justify-between lg:gap-4">
           <div className="flex items-center gap-3">
@@ -298,7 +350,7 @@ export default function App() {
 
             {/* Actions principales */}
             <hr className="my-6 border-white/20" />
-            <button className="w-full btn-primary justify-center" disabled={loading} onClick={generate}>{loading? (<RefreshCcw className="h-4 w-4 animate-spin"/>):(<Shuffle className="h-4 w-4"/>)} {loading?"Génération...":"Générer un deck"}</button>
+            <button className="w-full btn-primary justify-center" disabled={generationProgress.active} onClick={generate}>{generationProgress.active ? (<RefreshCcw className="h-4 w-4 animate-spin"/>):(<Shuffle className="h-4 w-4"/>)} {generationProgress.active ?"Génération...":"Générer un deck"}</button>
             {error && <p className="text-sm mt-3 text-center" style={{color:'#ffb4c2'}}>{error}</p>}
             <div className="text-xs muted flex items-start gap-2 mt-3"><Info className="h-4 w-4 mt-0.5 flex-shrink-0"/><p>Règles EDH respectées (100 cartes, singleton sauf bases, identité couleur, légalités). Budget heuristique glouton.</p></div>
           </div>
@@ -320,7 +372,7 @@ export default function App() {
               </div>
               <p className="text-xs muted mt-2">L’algo vise le <b>min</b> comme plancher; le max est indicatif pour l’affichage.</p>
             </div>
-            <div className="glass p-6">
+            <div className="glass p-6" ref={commanderSectionRef}>
               <div className="flex items-center gap-2 mb-4"><Sparkles className="h-5 w-5"/><h2 className="font-medium">Résultat</h2></div>
               {!deck ? (<div className="text-sm muted">Configure les options puis clique « Générer un deck ».</div>) : (
                 <div className="space-y-6">
@@ -352,7 +404,7 @@ export default function App() {
                   </div>
 
                   {/* Section Commandant */}
-                  <div ref={commanderSectionRef} className="section-anchor">
+                  <div className="section-anchor">
                     <h3 className="text-lg font-medium">Commandant{deck.commanders.length>1?'s':''} ({deck.commanders.length})</h3>
                     <div className="mt-2 grid md:grid-cols-2 gap-3">
                       {deck.commandersFull?.map((c,i)=> {
@@ -363,6 +415,8 @@ export default function App() {
                             card={c}
                             owned={owned}
                             onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}
+                            isWinCon={specialCards.winCons.has(c.name)}
+                            isGameChanger={specialCards.gameChangers.has(c.name)}
                           />
                         );
                       })}
@@ -370,7 +424,7 @@ export default function App() {
                   </div>
 
                   <div className="grid md:grid-cols-2 gap-4"><Progress label="Ramp" value={deck.balanceCounts?.ramp||0} targetMin={targets.ramp.min} targetMax={targets.ramp.max}/><Progress label="Pioche" value={deck.balanceCounts?.draw||0} targetMin={targets.draw.min} targetMax={targets.draw.max}/><Progress label="Anti-bêtes / Answers" value={deck.balanceCounts?.removal||0} targetMin={targets.removal.min} targetMax={targets.removal.max}/><Progress label="Wraths" value={deck.balanceCounts?.wraths||0} targetMin={targets.wraths.min} targetMax={targets.wraths.max}/></div>
-                  <div><h3 className="text-lg font-medium">Sorts non-terrains ({Object.values(deck.nonlands).reduce((a,b)=>a+b,0)})</h3>{Object.keys(nonlandsByType).length===0 ? (<p className="text-sm muted mt-1">Aucun sort détecté.</p>) : (<div className="space-y-4 mt-2">{Object.entries(nonlandsByType).map(([label, cards])=> (<div key={label}><h4 className="text-sm muted mb-2">{label} ({cards.length})</h4><div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{cards.map((c,idx)=> { const owned = isOwned(c.name); return (<CardTile key={c.name+idx} card={c} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}} />); })}</div></div>))}</div>)}</div>
+                  <div><h3 className="text-lg font-medium">Sorts non-terrains ({Object.values(deck.nonlands).reduce((a,b)=>a+b,0)})</h3>{Object.keys(nonlandsByType).length===0 ? (<p className="text-sm muted mt-1">Aucun sort détecté.</p>) : (<div className="space-y-4 mt-2">{Object.entries(nonlandsByType).map(([label, cards])=> (<div key={label}><h4 className="text-sm muted mb-2">{label} ({cards.length})</h4><div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{cards.map((c,idx)=> { const owned = isOwned(c.name); return (<CardTile key={c.name+idx} card={c} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}} isWinCon={specialCards.winCons.has(c.name)} isGameChanger={specialCards.gameChangers.has(c.name)}/>); })}</div></div>))}</div>)}</div>
                   <div><h3 className="text-lg font-medium">Terrains ({Object.values(deck.lands).reduce((a,b)=>a+b,0)})</h3>{Array.isArray(deck.landCards) && deck.landCards.length>0 ? (<div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">{deck.landCards.map((lc,idx)=> { const owned = isOwned(lc.name); return (<CardTile key={lc.name+idx} card={lc} qty={lc.qty} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>); })}</div>) : (<div className="grid md:grid-cols-2 gap-2 mt-2 text-sm">{Object.entries(deck.lands).map(([n,q]) => (<div key={n} className="flex justify-between glass-strong rounded-lg px-3 py-1.5"><span>{n}</span><span className="muted">x{q}</span></div>))}</div>)}</div>
                   <div className="grid grid-cols-1 lg:flex lg:flex-wrap lg:gap-2 gap-2"><button className="btn" onClick={copyList}><Copy className="inline-block h-4 w-4"/>Copier</button><button className="btn" onClick={exportJson}><Download className="inline-block h-4 w-4"/>JSON</button><button className="btn-primary" onClick={exportTxt}><Download className="inline-block h-4 w-4"/>TXT</button><button className="btn" onClick={reequilibrer} disabled={loading}><Sparkles className="inline-block h-4 w-4"/>Rééquilibrer</button></div>
                 </div>

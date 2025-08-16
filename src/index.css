@@ -201,6 +201,61 @@ body,
   font-weight: 500;
 }
 
+/* Styles pour les indicateurs de cartes spéciales */
+.special-card-indicator {
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.special-card-indicator.win-con {
+  color: #f87171; /* red-400 */
+  background-color: rgba(248, 113, 113, 0.1);
+}
+.special-card-indicator.game-changer {
+  color: #fb923c; /* orange-400 */
+  background-color: rgba(251, 146, 60, 0.1);
+}
+
+/* Styles pour la modale de progression */
+.generation-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background-color: rgba(0, 0, 0, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+.generation-modal-content {
+  background-color: var(--bg1);
+  padding: 2rem;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  width: 90%;
+  max-width: 400px;
+  text-align: center;
+}
+.generation-progress-bar-bg {
+  background-color: var(--panel-strong);
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 1rem;
+}
+.generation-progress-bar-fill {
+  background: linear-gradient(90deg, #a78bfa, #f472b6); /* violet-400 to pink-400 */
+  height: 100%;
+  transition: width 0.3s ease-in-out;
+}
+[data-theme="light"] .generation-progress-bar-fill {
+  background: linear-gradient(90deg, #8b5cf6, #ec4899); /* violet-500 to pink-500 */
+}
+
+
 @media (max-width: 767px) {
   .header-wrap {
     display: flex;
