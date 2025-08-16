@@ -79,7 +79,8 @@ export const RE = {
 
 export const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 export const ciMask = (s) => s.split("").filter(Boolean).sort().join("");
-export const identityToQuery = (ci) => `ci<=${(ci || "").toLowerCase()}`;
+// MODIFICATION: Ne retourne la requête `ci<=` que si une identité couleur est fournie.
+export const identityToQuery = (ci) => (ci ? `ci<=${ci.toLowerCase()}` : "");
 export const nameOf = (c) => c?.name?.trim?.() || "";
 export const oracle = (c) => (c?.oracle_text || "").toLowerCase();
 export const isCommanderLegal = (c) => c?.legalities?.commander === "legal";
