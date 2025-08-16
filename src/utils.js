@@ -3,7 +3,8 @@
 /***************** Scryfall API *****************/
 export const sf = {
   async search(q, opts = {}) {
-    const params = new URLSearchParams({ q, unique: opts.unique || "cards", order: opts.order || "random" });
+    // CORRECTION : On retire l'ordre aléatoire par défaut pour correspondre à la branche 'main'
+    const params = new URLSearchParams({ q, unique: opts.unique || "cards", ...opts });
     const r = await fetch(`https://api.scryfall.com/cards/search?${params}`);
     if (!r.ok) throw new Error(`Scryfall ${r.status}`);
     return r.json();
@@ -21,7 +22,6 @@ export const sf = {
 };
 
 /***************** Listes de cartes spéciales *****************/
-// Listes non exhaustives des cartes les plus communes pour chaque catégorie
 export const WIN_CONDITIONS = new Set([
   "craterhoof behemoth", "expropriate", "torment of hailfire", "approach of the second sun",
   "aetherflux reservoir", "thassa's oracle", "finale of devastation", "insurrection",
