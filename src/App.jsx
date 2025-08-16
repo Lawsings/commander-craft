@@ -88,44 +88,36 @@ export default function App() {
   const maybeAddPartner = async (primary) => { const has = (oracle(primary).includes("partner") || (primary.keywords || []).some(k => k.toLowerCase().includes("partner"))); if (!allowPartner || !has) return null; const q = ["legal:commander", "is:commander", "game:paper", "-is:funny", "(keyword:partner or o:\"Partner with\")"].join(" "); for (let i = 0; i < 12; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; if (nameOf(c) === nameOf(primary)) continue; return c; } return null; };
   const maybeAddBackground = async (primary) => { const wants = allowBackground && oracle(primary).includes("choose a background"); if (!wants) return null; const q = ["legal:commander", "type:background", "game:paper", identityToQuery(getCI(primary) || "wubrg")].join(" "); for (let i = 0; i < 10; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; return c; } return null; };
 
-  const fetchPool = async (ci) => {
-    const base = `legal:commander game:paper ${identityToQuery(ci)} -is:funny`;
-    const mech = mechanics.length ? ` (${mechanics.map(k => { const tag = MECHANIC_TAGS.find(m => m.key === k); if (!tag) return ""; const parts = tag.matchers.map(m => `o:\"${m}\"`).join(" or "); return `(${parts})`; }).join(" or ")})` : "";
-    const spellsQ = `${base} -type:land -type:background${mech}`;
-    const landsQ = `${base} type:land -type:basic`;
+  const fetchPool=async(ci)=>{
+    const base=`legal:commander game:paper ${identityToQuery(ci)} -is:funny`;
+    const mech = mechanics.length ? ` (${mechanics.map(k=>{
+        const tag=MECHANIC_TAGS.find(m=>m.key===k);
+        if(!tag) return "";
+        const parts=tag.matchers.map(m=>`o:"${m}"`).join(" or ");
+        return `(${parts})`;
+    }).join(" or ")})` : "";
+    const spellsQ=`${base} -type:land -type:background${mech}`;
+    const landsQ =`${base} type:land -type:basic`;
 
-    // MODIFICATION: Retour à la méthode de recherche originale et plus robuste
-    const gather = async (q, b, pages = 2) => {
-      try {
-        let page = await sf.search(q, { unique: "cards", order: "random" }); // Utilise "random" au lieu de "edhrec"
-        if (page && page.data) {
-          b.push(...page.data);
-          for (let i = 1; i < pages && page.has_more; i++) {
+    const gather=async(q,b,pages=2)=>{
+        // On remet order: "random" pour une meilleure diversité
+        let page=await sf.search(q,{unique:"cards", order:"random"});
+        b.push(...page.data);
+        for(let i=1;i<pages && page.has_more;i++){
             await sleep(100);
-            const nextPageResponse = await fetch(page.next_page);
-            if (nextPageResponse.ok) {
-              page = await nextPageResponse.json();
-              if (page && page.data) {
-                b.push(...page.data);
-              }
-            } else {
-              break;
-            }
-          }
+            page=await fetch(page.next_page).then(r=>r.json());
+            b.push(...page.data);
         }
-      } catch (error) {
-        if (!error.message.includes("404")) {
-          console.error("Scryfall API error during gather:", error);
-          throw error;
-        }
-      }
     };
 
-    const spells = [], lands = [];
-    await gather(spellsQ, spells, 2);
-    await gather(landsQ, lands, 1);
-    return { spells: distinctByName(spells).filter(isCommanderLegal), lands: distinctByName(lands).filter(isCommanderLegal) };
-  };
+    const spells=[], lands=[];
+    await gather(spellsQ,spells,2);
+    await gather(landsQ,lands,1);
+    return {
+        spells:distinctByName(spells).filter(isCommanderLegal),
+        lands:distinctByName(lands).filter(isCommanderLegal)
+    };
+};
 
   async function buildLandCards(landsMap) { const out = []; for (const [n, q] of Object.entries(landsMap)) { try { const b = await bundleByName(n); out.push({ ...b, qty: q }); } catch { out.push({ name: n, qty: q, image: "", small: "", oracle_en: "", mana_cost: "", cmc: 0, prices: {}, scryfall_uri: "" }); } await sleep(60); } return out; }
 
