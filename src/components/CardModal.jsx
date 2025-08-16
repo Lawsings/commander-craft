@@ -7,9 +7,14 @@ export default function CardModal({ open, card, owned, onClose }) {
   const price = (Number(card.prices?.eur) || Number(card.prices?.eur_foil) || 0).toFixed(2);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
-      {/* Les classes bg-[#111] et border ont été remplacées par modal-content */}
-      <div className="modal-content rounded-2xl max-w-3xl w-full grid md:grid-cols-2 gap-4 p-4" onClick={(e) => e.stopPropagation()}>
-        {card.image && <img src={card.image} alt={card.name} className="w-full rounded-lg object-cover" />}
+      {/* Ajout de la classe "modal-grid" pour le style responsive */}
+      <div className="modal-content modal-grid rounded-2xl max-w-3xl w-full md:grid-cols-2 gap-4 p-4" onClick={(e) => e.stopPropagation()}>
+        {/* Ajout d'un conteneur pour mieux contrôler la taille de l'image sur mobile */}
+        {card.image && (
+          <div className="modal-image-container">
+            <img src={card.image} alt={card.name} className="w-full rounded-lg object-cover" />
+          </div>
+        )}
         <div className="space-y-2 min-w-0">
           <h4 className="text-xl font-semibold flex items-center gap-2">
             {card.name}
