@@ -162,7 +162,7 @@ export default function App() {
     <div className="min-h-screen">
       <div className="max-w-7xl mx-auto px-6 py-10">
         <header className="header-wrap lg:flex lg:items-center lg:justify-between lg:gap-4">
-          <h1 className="text-2xl md:text-4xl font-semibold tracking-tight"> Commander Craft </h1>
+          <h1 className="text-2xl md:text-4xl font-semibold tracking-tight"> Commander Craft</h1>
           <div className="header-actions lg:flex lg:gap-2 lg:w-auto">
             <button className="btn" onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} aria-label="Basculer thème">
               {theme === 'dark' ? (<><Sun className="h-4 w-4" /><span>Mode clair</span></>) : (<><Moon className="h-4 w-4" /><span>Mode sombre</span></>)}
@@ -175,7 +175,6 @@ export default function App() {
           <div className="glass p-6">
             <div className="flex items-center gap-2 mb-4"><Settings2 className="h-5 w-5" /><h2 className="font-medium">Paramètres</h2></div>
 
-            {/* Grille pour la mise en page desktop */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-x-8 gap-y-4">
               {/* Colonne 1 */}
               <div className="flex flex-col space-y-4">
@@ -215,11 +214,22 @@ export default function App() {
               {/* Colonne 2 */}
               <div className="flex flex-col space-y-4">
                 <div className="space-y-3">
-                  <div><label className="muted text-sm">Prioriser ma collection: {weightOwned.toFixed(1)}x</label><input type="range" min={0} max={2} step={0.1} value={weightOwned} onChange={e => setWeightOwned(Number(e.target.value))} className="w-full" /></div>
-                  <div><label className="muted text-sm">Prioriser EDHREC: {weightEdhrec.toFixed(1)}x</label><input type="range" min={0} max={2} step={0.1} value={weightEdhrec} onChange={e => setWeightEdhrec(Number(e.target.value))} className="w-full" /></div>
+                  <div>
+                    <label className="muted text-sm">Prioriser ma collection: {weightOwned.toFixed(1)}x</label>
+                    <input type="range" min={0} max={2} step={0.1} value={weightOwned} onChange={e => setWeightOwned(Number(e.target.value))} className="w-full" />
+                    <p className="text-xs muted mt-1">Donne plus de poids aux cartes que vous possédez déjà.</p>
+                  </div>
+                  <div>
+                    <label className="muted text-sm">Prioriser EDHREC: {weightEdhrec.toFixed(1)}x</label>
+                    <input type="range" min={0} max={2} step={0.1} value={weightEdhrec} onChange={e => setWeightEdhrec(Number(e.target.value))} className="w-full" />
+                    <p className="text-xs muted mt-1">Privilégie les cartes populaires et synergiques selon EDHREC.</p>
+                  </div>
                 </div>
                 <div><label className="muted text-sm">Nombre de terrains visé: {targetLands}</label><input type="range" min={32} max={40} step={1} value={targetLands} onChange={e => setTargetLands(Number(e.target.value))} className="w-full" /></div>
-                <div><label className="muted text-sm">Budget global du deck (EUR)</label><input type="number" min={0} placeholder="0 = sans limite" value={deckBudget} onChange={e => setDeckBudget(Number(e.target.value || 0))} className="w-full input" /><p className="text-xs muted mt-1">Prix EUR Scryfall; popularité EDHREC via edhrec_rank.</p></div>
+                <div>
+                  <label className="muted text-sm">Budget global du deck (EUR)</label>
+                  <input type="text" inputMode="numeric" pattern="[0-9]*" placeholder="0 = sans limite" value={deckBudget || ''} onChange={e => setDeckBudget(Number(e.target.value.replace(/\D/g,'')) || 0)} className="w-full input" />
+                </div>
                 <div className="flex items-center justify-between"><div className="space-y-1"><span>Autoriser Partner</span><p className="text-xs muted">N'influence pas la recherche ; ajoute un partenaire si possible.</p></div><input type="checkbox" checked={allowPartner} onChange={e => setAllowPartner(e.target.checked)} /></div>
                 <div className="flex items-center justify-between"><div className="space-y-1"><span>Autoriser Background</span><p className="text-xs muted">Si le commandant le permet.</p></div><input type="checkbox" checked={allowBackground} onChange={e => setAllowBackground(e.target.checked)} /></div>
               </div>

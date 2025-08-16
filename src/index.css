@@ -92,6 +92,14 @@ body,
 .btn.glass-strong:hover {
   background: rgba(255, 255, 255, 0.34);
 }
+/* Amélioration de l'état cliqué en mode clair */
+[data-theme="light"] .btn.glass-strong {
+    background: var(--btn-active-bg);
+    border-color: rgba(0, 0, 0, 0.4);
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1) inset;
+    color: var(--text);
+}
+
 .btn-primary {
   display: inline-flex;
   align-items: center;
@@ -224,7 +232,6 @@ body,
   position: relative;
 }
 
-/* Nouveaux styles pour le bouton fermer */
 .modal-close-btn {
   position: absolute;
   top: 8px;
@@ -235,7 +242,7 @@ body,
   background-color: rgba(0, 0, 0, 0.4);
   color: white;
   transition: background-color 0.15s, transform 0.1s;
-  line-height: 0; /* Pour bien centrer le SVG */
+  line-height: 0;
 }
 .modal-close-btn:hover {
   background-color: rgba(0, 0, 0, 0.7);
@@ -249,22 +256,19 @@ body,
     background-color: rgba(0, 0, 0, 0.2);
 }
 
-/* Styles pour le conteneur de la modale */
 .modal-grid-container {
-  /* Layout par défaut (mobile) */
   display: block;
-  max-height: 80vh; /* Hauteur max sur mobile */
+  max-height: 80vh;
   overflow-y: auto;
-  padding-right: 8px; /* Espace pour la scrollbar */
-  margin-top: 1rem; /* Espace pour le bouton fermer */
+  padding-right: 8px;
+  margin-top: 1rem;
 }
 
 .modal-image-container {
-  max-width: 250px; /* Taille de l'image sur mobile */
+  max-width: 250px;
   margin: 0 auto 1rem;
 }
 
-/* Styles pour la scrollbar (optionnel) */
 .modal-grid-container::-webkit-scrollbar { width: 6px; }
 .modal-grid-container::-webkit-scrollbar-track { background: transparent; }
 .modal-grid-container::-webkit-scrollbar-thumb {
@@ -272,19 +276,18 @@ body,
   border-radius: 20px;
 }
 
-/* Media query pour le desktop (écrans plus larges que 768px) */
 @media (min-width: 768px) {
   .modal-grid-container {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 1.5rem; /* Espace entre l'image et le texte */
-    max-height: none; /* Pas de limite de hauteur sur desktop */
-    overflow-y: visible; /* Pas de scroll sur desktop */
+    gap: 1.5rem;
+    max-height: none;
+    overflow-y: visible;
     padding-right: 0;
     margin-top: 0;
   }
   .modal-image-container {
-    max-width: 100%; /* L'image prend toute la largeur de sa colonne */
+    max-width: 100%;
     margin-bottom: 0;
   }
 }
