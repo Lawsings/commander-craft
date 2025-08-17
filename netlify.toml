@@ -1,17 +1,12 @@
-# Fichier: netlify.toml (Version finale et correcte)
-
+# netlify.toml — propre et minimal pour Vite/React
 [build]
   command = "npm run build"
   publish = "dist"
 
-# Configuration pour les fonctions Serverless
-[functions]
-  # Indique à Netlify où trouver les fonctions
-  directory = "netlify/functions/"
-  # Augmente le temps d'exécution max à 25 secondes
-  timeout = 25
-  node_bundler = "esbuild"
+[build.environment]
+  NODE_VERSION = "20"
 
+# Redirection SPA (React Router, etc.)
 [[redirects]]
   from = "/*"
   to = "/index.html"
