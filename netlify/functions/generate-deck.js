@@ -1,4 +1,4 @@
-// Fichier: netlify/functions/generate-deck.js (Version finale avec logique de mana déportée)
+// Fichier: netlify/functions/generate-deck.js (Version finale avec VOS pourcentages)
 
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -19,12 +19,10 @@ export const handler = async (event) => {
   const { commander, colorIdentity, budget, mechanics, targetLands, ownedCards } = params;
 
   // ==================================================================
-  // ÉTAPE 1 : L'IA CHOISIT UNIQUEMENT LES SORTS
+  // ÉTAPE 1 : L'IA CHOISIT UNIQUEMENT LES SORTS (INCHANGÉ)
   // ==================================================================
 
   const nonLandSlots = 99 - targetLands;
-  const creatureSlots = 25;
-  const supportSlots = nonLandSlots - creatureSlots;
 
   const prompt = `
     Tu es un expert en construction de deck pour Magic: The Gathering.
@@ -35,23 +33,13 @@ export const handler = async (event) => {
     - Commandant: "${commander}"
     - Identité Couleur: "${colorIdentity}"
     - Budget: ${budget} EUR pour l'ensemble du deck.
-    - Thèmes: ${mechanics.join(', ') || 'Synergie générale'}
-    - Cartes possédées (à prioriser si possible): ${ownedCards.slice(0, 50).join(', ')}
 
     **INSTRUCTIONS STRICTES :**
-    1.  Tu dois sélectionner EXACTEMENT **${nonLandSlots} cartes** au total.
-    2.  Respecte la répartition suivante :
-        - **${creatureSlots} Créatures**
-        - **10 cartes d'Accélération (Ramp)**
-        - **10 cartes de Pioche (Draw)**
-        - **8 cartes de Gestion (Removal)**
-        - **4 cartes de Nettoyage de Table (Board Wipes)**
-        - **${supportSlots - (10 + 10 + 8 + 4)} cartes "Flex"** pour les thèmes.
-    3.  Toutes les cartes doivent respecter l'identité couleur.
-    4.  Toutes les cartes doivent être en un seul exemplaire.
+    1.  Tu dois sélectionner EXACTEMENT **${nonLandSlots} cartes**.
+    2.  Respecte une répartition équilibrée : environ 25 créatures, 10 ramp, 10 pioche, 12 interaction (removal/wipes), et le reste en cartes de synergie.
+    3.  Toutes les cartes doivent respecter l'identité couleur et être en un seul exemplaire.
 
     **FORMAT DE SORTIE (JSON STRICT) :**
-    Réponds UNIQUEMENT avec un objet JSON. Ne fournis aucun texte avant ou après.
     {
       "spells": [/* Une liste de ${nonLandSlots} noms de cartes */]
     }
@@ -83,33 +71,37 @@ export const handler = async (event) => {
     const spells = aiDeckPart.spells;
 
     // ==================================================================
-    // ÉTAPE 2 : NOTRE CODE CONSTRUIT LA BASE DE MANA
+    // ÉTAPE 2 : LE CODE CONSTRUIT LA BASE DE MANA AVEC VOS RÈGLES
     // ==================================================================
     const colorCount = colorIdentity.length;
-    let nonBasicLandCount;
-    let basicLandCount;
+    let basicLandPercentage;
 
-    if (colorCount <= 1) { // 85% basiques
-        nonBasicLandCount = Math.round(targetLands * 0.15);
-    } else if (colorCount === 2) { // 50% basiques
-        nonBasicLandCount = Math.round(targetLands * 0.50);
-    } else if (colorCount === 3) { // 33% basiques
-        nonBasicLandCount = Math.round(targetLands * 0.67);
-    } else { // 15% basiques
-        nonBasicLandCount = Math.round(targetLands * 0.85);
+    // Application stricte de votre analyse en pourcentage
+    if (colorCount <= 1) {
+        basicLandPercentage = 0.85; // ~85% de terrains de base
+    } else if (colorCount === 2) {
+        basicLandPercentage = 0.50; // ~50% de terrains de base
+    } else if (colorCount === 3) {
+        basicLandPercentage = 0.33; // ~33% de terrains de base
+    } else { // 4 ou 5 couleurs
+        basicLandPercentage = 0.20; // ~20% de terrains de base
     }
-    basicLandCount = targetLands - nonBasicLandCount;
 
-    // Recherche des meilleurs terrains non-basiques sur Scryfall
-    const scryfallQuery = `(type:land -type:basic) legal:commander ci<=${colorIdentity} order:edhrec usd<${budget > 0 ? budget/10 : 10}`;
+    // Calcul exact basé sur les pourcentages
+    const basicLandCount = Math.round(targetLands * basicLandPercentage);
+    const nonBasicLandCount = targetLands - basicLandCount;
+
+    // Recherche des meilleurs terrains non-basiques ("avec effet") sur Scryfall
+    // J'ajoute -t:basic pour être absolument certain de n'avoir que des terrains non-basiques
+    const scryfallQuery = `(type:land -type:basic) legal:commander ci<=${colorIdentity} order:edhrec usd<${budget > 0 ? budget / 10 : 10}`;
     const scryfallResponse = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(scryfallQuery)}`);
     const scryfallJson = await scryfallResponse.json();
 
-    const nonBasicLands = scryfallJson.data
-        .map(card => card.name)
-        .slice(0, nonBasicLandCount);
+    const nonBasicLands = scryfallJson.data && scryfallJson.data.length > 0
+        ? scryfallJson.data.map(card => card.name).slice(0, nonBasicLandCount)
+        : [];
 
-    // Ajout des terrains de base
+    // Ajout des terrains de base ("sans effet")
     const basicLands = [];
     const basicsByColor = { W: "Plains", U: "Island", B: "Swamp", R: "Mountain", G: "Forest" };
     if (colorCount > 0) {
@@ -122,7 +114,7 @@ export const handler = async (event) => {
             }
             remainder--;
         }
-    } else { // Incolore
+    } else if (basicLandCount > 0) { // Incolore
         for (let i = 0; i < basicLandCount; i++) {
             basicLands.push("Wastes");
         }
