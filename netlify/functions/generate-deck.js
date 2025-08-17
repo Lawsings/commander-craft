@@ -1,4 +1,3 @@
-// netlify/functions/generate-deck.js
 import OpenAI from "openai";
 
 // ---------- Utils ----------
@@ -56,6 +55,7 @@ function pickLandTargets(targetLands, colorIdentity) {
 
 // ---------- Handler ----------
 export const handler = async (event) => {
+  const DEBUG = process.env.DEBUG_FUNCTION === "1";
   try {
     if (event.httpMethod !== "POST") {
       return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
@@ -63,18 +63,17 @@ export const handler = async (event) => {
 
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
     const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
-
-    if (!OPENAI_API_KEY) {
-      return { statusCode: 500, body: JSON.stringify({ error: "OPENAI_API_KEY manquant côté serveur." }) };
-    }
+    const USE_MOCK = process.env.USE_MOCK === "1";
 
     let payload;
     try { payload = JSON.parse(event.body || "{}"); }
-    catch { return { statusCode: 400, body: JSON.stringify({ error: "Corps JSON invalide." }) }; }
+    catch {
+      return { statusCode: 400, body: JSON.stringify({ error: "Corps JSON invalide." }) };
+    }
 
     const {
-      commander,           // string
-      colorIdentity,       // ex: "WU"
+      commander,
+      colorIdentity,
       budget = 0,
       mechanics = [],
       ownedCards = [],
@@ -88,7 +87,30 @@ export const handler = async (event) => {
     const { lands, nonBasic, basic } = pickLandTargets(targetLands, colorIdentity);
     const nonLandSlots = 99 - lands;
 
-    // Schéma pour sortie structurée (spells uniquement)
+    // --- Mode MOCK (pour tester toute la chaîne sans OpenAI) ---
+    if (USE_MOCK) {
+      const fakeSpells = [];
+      for (let i = 1; i <= nonLandSlots; i++) fakeSpells.push(`Mock Spell ${i}`);
+      const nonBasicNames = ["Command Tower","Exotic Orchard","Path of Ancestry"].slice(0, nonBasic);
+      while (nonBasicNames.length < nonBasic) nonBasicNames.push("Temple of the False God");
+      const basicNames = buildBasicLands({ colorIdentity, basicCount: basic });
+
+      return {
+        statusCode: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ commanders: [commander], spells: fakeSpells, lands: [...nonBasicNames, ...basicNames] })
+      };
+    }
+
+    // Vérif clé OpenAI
+    if (!OPENAI_API_KEY) {
+      return {
+        statusCode: 500,
+        body: JSON.stringify({ error: "MISSING_OPENAI_KEY", message: "OPENAI_API_KEY manquant côté serveur." })
+      };
+    }
+
+    // Schéma JSON strict pour la sortie LLM (spells seulement)
     const spellsSchema = {
       type: "object",
       properties: {
@@ -127,11 +149,11 @@ export const handler = async (event) => {
       "Tu es un générateur de decks MTG Commander.",
       "Renvoie UNIQUEMENT un JSON valide conforme au schéma demandé.",
       "Contraintes obligatoires :",
-      "- Respect identité couleur du commandant (aucune carte hors identité).",
-      "- Format Commander: singleton, légal Commander, pas de cartes bannies.",
+      "- Identité couleur respectée.",
+      "- Format Commander: singleton, légal Commander, pas de bannies.",
       "- Favoriser les cartes possédées si pertinentes.",
-      "- Prendre en compte mécaniques/thèmes fournis.",
-      "- Adapter environ aux ratios EDH (indicatifs) dans les non-terrains.",
+      "- Prendre en compte mécaniques/thèmes.",
+      "- Ratios EDH indicatifs dans les non-terrains.",
       "Ne renvoie aucun texte d'explication humain hors JSON."
     ].join("\n");
 
@@ -150,32 +172,37 @@ FORMAT DE SORTIE STRICT:
   "spells": [ /* exactement ${nonLandSlots} noms */ ]
 }`;
 
-    // ---- Appel OpenAI Responses API (version simplifiée & à jour) ----
+    // ---- Appel OpenAI Responses API ----
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
-    const resp = await client.responses.create({
-      model: MODEL,
-      // IMPORTANT : on passe un unique input string, c'est le chemin le plus robuste
-      input: `${systemPrompt}\n\n${userPrompt}`,
-      text: {
-        format: "json_schema",
-        json_schema: {
-          name: "SpellsOnly",
-          schema: spellsSchema,
-          strict: true
-        }
-      },
-      max_output_tokens: 1200,
-      temperature: 0.8
-    });
+    let resp;
+    try {
+      resp = await client.responses.create({
+        model: MODEL,
+        input: `${systemPrompt}\n\n${userPrompt}`,
+        text: {
+          format: "json_schema",
+          json_schema: { name: "SpellsOnly", schema: spellsSchema, strict: true }
+        },
+        max_output_tokens: 1200,
+        temperature: 0.8
+      });
+    } catch (e) {
+      const status = e?.status || 502;
+      const details = e?.error || e?.response || e?.message || String(e);
+      if (DEBUG) {
+        return { statusCode: status, body: JSON.stringify({ error: "OPENAI_REQUEST_FAILED", details }) };
+      }
+      return { statusCode: status, body: JSON.stringify({ error: "OPENAI_REQUEST_FAILED" }) };
+    }
 
-    // Récupération sûre du JSON (output_text est fourni par le SDK v4+)
     const jsonText =
       resp?.output_text ??
       resp?.output?.[0]?.content?.[0]?.text ??
       "";
 
     if (!jsonText) {
-      return { statusCode: 502, body: JSON.stringify({ error: "Réponse OpenAI vide (jsonText manquant)." }) };
+      const msg = "Réponse OpenAI vide (jsonText manquant).";
+      return { statusCode: 502, body: JSON.stringify({ error: "EMPTY_OPENAI_RESPONSE", message: msg }) };
     }
 
     let spells;
@@ -183,7 +210,8 @@ FORMAT DE SORTIE STRICT:
       const parsed = JSON.parse(jsonText);
       spells = Array.isArray(parsed.spells) ? parsed.spells : [];
     } catch (e) {
-      return { statusCode: 502, body: JSON.stringify({ error: "JSON invalide renvoyé par le LLM.", details: jsonText.slice(0, 400) }) };
+      const snippet = jsonText.slice(0, 400);
+      return { statusCode: 502, body: JSON.stringify({ error: "INVALID_OPENAI_JSON", snippet }) };
     }
 
     // Dédup + trim
@@ -194,28 +222,34 @@ FORMAT DE SORTIE STRICT:
       if (name && !set.has(name)) { set.add(name); cleanSpells.push(name); }
     }
     if (cleanSpells.length !== nonLandSlots) {
-      return { statusCode: 502, body: JSON.stringify({ error: `Le LLM n'a pas renvoyé ${nonLandSlots} non-terrains (reçu: ${cleanSpells.length}).` }) };
+      return { statusCode: 502, body: JSON.stringify({
+        error: "WRONG_COUNT",
+        expected: nonLandSlots,
+        got: cleanSpells.length
+      }) };
     }
 
     // Lands
-    const nonBasicNames = await fetchNonBasicLands({ colorIdentity, count: nonBasic });
-    const basicNames = buildBasicLands({ colorIdentity, basicCount: basic });
-    const landsArray = [...nonBasicNames, ...basicNames];
+    let landsArray = [];
+    try {
+      const nonBasicNames = await fetchNonBasicLands({ colorIdentity, count: nonBasic });
+      const basicNames = buildBasicLands({ colorIdentity, basicCount: basic });
+      landsArray = [...nonBasicNames, ...basicNames];
+    } catch (e) {
+      const msg = e?.message || String(e);
+      if (DEBUG) {
+        return { statusCode: 502, body: JSON.stringify({ error: "LANDS_BUILD_FAILED", message: msg }) };
+      }
+      return { statusCode: 502, body: JSON.stringify({ error: "LANDS_BUILD_FAILED" }) };
+    }
 
     const finalDeck = { commanders: [commander], spells: cleanSpells, lands: landsArray };
     return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(finalDeck) };
 
   } catch (err) {
-    // Log côté function + message lisible côté front
-    console.error("generate-deck error:", err);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({
-        error: "Erreur interne",
-        message: err?.message || String(err),
-        // aide au debug : commente la ligne suivante en prod si tu veux moins de verbosité
-        stack: err?.stack || null
-      })
-    };
+    const message = err?.message || String(err);
+    const payload = { error: "INTERNAL_ERROR", message };
+    if (process.env.DEBUG_FUNCTION === "1") payload.stack = err?.stack || null;
+    return { statusCode: 500, body: JSON.stringify(payload) };
   }
 };
