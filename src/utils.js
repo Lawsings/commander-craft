@@ -9,8 +9,9 @@ export const sf = {
     return r.json();
   },
   async random(q) {
-    const r = await fetch(`https://api.scryfall.com/cards/random?q=${encodeURIComponent(q)}`);
-    if (!r.ok) throw new Error(`Scryfall ${r.status}`);
+    // ⚠️ Corrigé : on passe par la Netlify Function pour éviter le CORS
+    const r = await fetch(`/.netlify/functions/random-commander?q=${encodeURIComponent(q)}`);
+    if (!r.ok) throw new Error(`Random proxy ${r.status}`);
     return r.json();
   },
   async namedExact(n) {

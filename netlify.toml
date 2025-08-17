@@ -8,7 +8,9 @@
   NODE_VERSION = "20"
 
 [functions]
-    directory = "netlify/functions"
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+  external_node_modules = ["openai"]
 
 # Redirection pour les Single Page Applications (SPA)
 [[redirects]]
