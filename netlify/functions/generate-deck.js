@@ -16,11 +16,9 @@ async function fetchNonBasicLands({ colorIdentity, count }) {
     "t:land", "-is:basic", "legal:commander", "game:paper",
     ci ? `ci<=${ci}` : ""
   ].filter(Boolean).join(" ");
-
   const url = "https://api.scryfall.com/cards/search?q=" +
               encodeURIComponent(q) +
               "&unique=cards&order=edhrec";
-
   const r = await fetch(url);
   if (!r.ok) throw new Error(`Scryfall lands HTTP ${r.status}`);
   const json = await r.json();
@@ -68,9 +66,7 @@ export const handler = async (event) => {
 
     let payload;
     try { payload = JSON.parse(event.body || "{}"); }
-    catch {
-      return { statusCode: 400, body: JSON.stringify({ error: "Corps JSON invalide." }) };
-    }
+    catch { return { statusCode: 400, body: JSON.stringify({ error: "Corps JSON invalide." }) }; }
 
     const {
       commander,
@@ -107,7 +103,7 @@ export const handler = async (event) => {
       return { statusCode: 500, body: JSON.stringify({ error: "MISSING_OPENAI_KEY", message: "OPENAI_API_KEY manquant côté serveur." }) };
     }
 
-    // Schéma JSON (sans uniqueItems — non supporté par Structured Outputs)
+    // Schéma JSON (Structured Outputs) — pas de uniqueItems (non supporté)
     const spellsSchema = {
       type: "object",
       properties: {
@@ -168,7 +164,7 @@ FORMAT DE SORTIE STRICT:
   "spells": [ /* exactement ${nonLandSlots} noms */ ]
 }`;
 
-    // ---- Appel OpenAI Responses API (text.format avec schema, sans uniqueItems) ----
+    // ---- Appel OpenAI Responses API (text.format avec schema) ----
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
     let resp;
     try {
@@ -189,9 +185,7 @@ FORMAT DE SORTIE STRICT:
     } catch (e) {
       const status = e?.status || 502;
       const details = e?.error || e?.response || e?.message || String(e);
-      if (DEBUG) {
-        return { statusCode: status, body: JSON.stringify({ error: "OPENAI_REQUEST_FAILED", details }) };
-      }
+      if (DEBUG) return { statusCode: status, body: JSON.stringify({ error: "OPENAI_REQUEST_FAILED", details }) };
       return { statusCode: status, body: JSON.stringify({ error: "OPENAI_REQUEST_FAILED" }) };
     }
 
@@ -214,13 +208,78 @@ FORMAT DE SORTIE STRICT:
       return { statusCode: 502, body: JSON.stringify({ error: "INVALID_OPENAI_JSON", snippet }) };
     }
 
-    // Dédup + trim + contrôle du compte
+    // Dédup + trim
     const set = new Set();
-    const cleanSpells = [];
+    let cleanSpells = [];
     for (const n of spells) {
       const name = String(n || "").split("//")[0].trim();
       if (name && !set.has(name)) { set.add(name); cleanSpells.push(name); }
     }
+
+    // --- Réparation automatique du compte ---
+    if (cleanSpells.length > nonLandSlots) {
+      cleanSpells = cleanSpells.slice(0, nonLandSlots);
+    }
+    if (cleanSpells.length < nonLandSlots) {
+      const missing = nonLandSlots - cleanSpells.length;
+
+      // Petit schéma pour la réparation (taille = missing)
+      const repairSchema = {
+        type: "object",
+        properties: {
+          spells: {
+            type: "array",
+            items: { type: "string" },
+            minItems: missing,
+            maxItems: missing
+          }
+        },
+        required: ["spells"],
+        additionalProperties: false
+      };
+
+      const repairPrompt =
+`Corrige le compte. Fournis exactement ${missing} noms de cartes **non-terrains**, légales en Commander, compatibles avec l'identité ${colorIdentity || "(inconnue)"}.
+Aucun doublon avec cette liste : ${JSON.stringify(cleanSpells)}
+Respecte le format STRICT :
+{ "spells": [ /* exactement ${missing} noms */ ] }`;
+
+      try {
+        const repair = await client.responses.create({
+          model: MODEL,
+          input: repairPrompt,
+          text: {
+            format: {
+              type: "json_schema",
+              name: "SpellsRepair",
+              schema: repairSchema,
+              strict: true
+            }
+          },
+          max_output_tokens: 400,
+          temperature: 0.6
+        });
+
+        const repairText =
+          repair?.output_text ??
+          repair?.output?.[0]?.content?.[0]?.text ??
+          "";
+        const parsedRepair = JSON.parse(repairText || "{}");
+        const additions = Array.isArray(parsedRepair.spells) ? parsedRepair.spells : [];
+
+        for (const n of additions) {
+          const name = String(n || "").split("//")[0].trim();
+          if (name && !set.has(name)) { set.add(name); cleanSpells.push(name); }
+        }
+      } catch (e) {
+        if (DEBUG) {
+          return { statusCode: 502, body: JSON.stringify({ error: "REPAIR_FAILED", details: e?.message || String(e) }) };
+        }
+        // on continue, et on vérifiera ci-dessous
+      }
+    }
+
+    // Si malgré la réparation, ça ne colle pas, on renvoie une erreur explicite
     if (cleanSpells.length !== nonLandSlots) {
       return { statusCode: 502, body: JSON.stringify({
         error: "WRONG_COUNT",
@@ -237,9 +296,7 @@ FORMAT DE SORTIE STRICT:
       landsArray = [...nonBasicNames, ...basicNames];
     } catch (e) {
       const msg = e?.message || String(e);
-      if (DEBUG) {
-        return { statusCode: 502, body: JSON.stringify({ error: "LANDS_BUILD_FAILED", message: msg }) };
-      }
+      if (DEBUG) return { statusCode: 502, body: JSON.stringify({ error: "LANDS_BUILD_FAILED", message: msg }) };
       return { statusCode: 502, body: JSON.stringify({ error: "LANDS_BUILD_FAILED" }) };
     }
 
