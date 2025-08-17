@@ -107,6 +107,22 @@ export const handler = async (event) => {
       return { statusCode: 500, body: JSON.stringify({ error: "MISSING_OPENAI_KEY", message: "OPENAI_API_KEY manquant côté serveur." }) };
     }
 
+    // Schéma JSON strict pour la sortie LLM (spells seulement)
+    const spellsSchema = {
+      type: "object",
+      properties: {
+        spells: {
+          type: "array",
+          items: { type: "string" },
+          minItems: nonLandSlots,
+          maxItems: nonLandSlots,
+          uniqueItems: true
+        }
+      },
+      required: ["spells"],
+      additionalProperties: false
+    };
+
     const userContext = {
       commander,
       colorIdentity,
@@ -128,29 +144,48 @@ export const handler = async (event) => {
 
     const systemPrompt = [
       "Tu es un générateur de decks MTG Commander.",
-      "Réponds UNIQUEMENT en JSON valide. Aucune explication humaine.",
-      "Contraintes : identité couleur respectée ; format Commander (singleton, légal, pas de bannies) ;",
-      "favoriser ownedCards si pertinent ; prendre en compte mechanics ; ratios EDH indicatifs.",
-      `Retourne un objet { "spells": string[] } avec EXACTEMENT ${nonLandSlots} entrées, NOMS DE CARTES non-terrains.`
+      "Renvoie UNIQUEMENT un JSON valide conforme au schéma demandé.",
+      "Contraintes obligatoires :",
+      "- Identité couleur respectée.",
+      "- Format Commander: singleton, légal Commander, pas de bannies.",
+      "- Favoriser ownedCards si pertinent.",
+      "- Prendre en compte mechanics/thèmes.",
+      "- Ratios EDH indicatifs dans les non-terrains.",
+      "Ne renvoie aucun texte d'explication humain hors JSON."
     ].join("\n");
 
     const userPrompt =
 `Contexte utilisateur (JSON):
 ${JSON.stringify(userContext, null, 2)}
 
-Format attendu STRICT (aucune clé en plus) :
+Tâche:
+- Génère une liste de ${nonLandSlots} NOMS DE CARTES **non-terrains** (string exacts),
+- Légales en Commander et compatibles avec l'identité ${colorIdentity || "(inconnue)"},
+- Singleton (pas de doublons),
+- Inclure si possible des cartes présentes dans 'ownedCards' si pertinentes.
+
+FORMAT DE SORTIE STRICT:
 {
   "spells": [ /* exactement ${nonLandSlots} noms */ ]
 }`;
 
-    // ---- Appel OpenAI Responses API : JSON simple ----
+    // ---- Appel OpenAI Responses API (Structured Outputs via text.format) ----
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
     let resp;
     try {
       resp = await client.responses.create({
         model: MODEL,
         input: `${systemPrompt}\n\n${userPrompt}`,
-        text: { format: "json" }, // <- IMPORTANT : JSON simple (pas json_schema)
+        text: {
+          format: {
+            type: "json_schema",
+            json_schema: {
+              name: "SpellsOnly",
+              schema: spellsSchema,
+              strict: true
+            }
+          }
+        },
         max_output_tokens: 1200,
         temperature: 0.8
       });
