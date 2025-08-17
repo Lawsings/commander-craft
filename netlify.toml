@@ -1,8 +1,17 @@
+# Fichier: netlify.toml (Corrigé)
+
 [build]
   command = "npm run build"
   publish = "dist"
 
-# Si un jour tu ajoutes un router côté client (SPA), garde cette redirection :
+# Configuration pour les fonctions Serverless
+[functions]
+  # Indique à Netlify où trouver les fonctions
+  directory = "netlify/functions/"
+  # Augmente le temps d'exécution max à 25 secondes
+  timeout = 25
+  node_bundler = "esbuild"
+
 [[redirects]]
   from = "/*"
   to = "/index.html"
