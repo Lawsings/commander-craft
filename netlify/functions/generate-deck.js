@@ -4,7 +4,7 @@
 
 import OpenAI from "openai";
 
-// Utilitaires locaux pour la manabase (simples et robustes)
+// --- Utils ---
 function ciToArray(ciString = "") {
   return (ciString || "")
     .split("")
@@ -17,8 +17,7 @@ function clamp(n, min, max) {
 }
 
 async function fetchNonBasicLands({ colorIdentity, count }) {
-  // On récupère des terrains non-basiques "commander-legal", triés EDHrec
-  // via Scryfall. Node 20 => fetch global OK.
+  // Scryfall: terrains non-basiques, légaux Commander, triés par popularité EDHrec
   const ci = (colorIdentity || "").toLowerCase();
   const q = [
     "t:land",
@@ -36,9 +35,7 @@ async function fetchNonBasicLands({ colorIdentity, count }) {
     "&unique=cards&order=edhrec";
 
   const r = await fetch(url);
-  if (!r.ok) {
-    throw new Error(`Scryfall lands ${r.status}`);
-  }
+  if (!r.ok) throw new Error(`Scryfall lands ${r.status}`);
   const json = await r.json();
   const names = (json?.data || []).map((c) => c?.name).filter(Boolean);
   return names.slice(0, count);
@@ -50,7 +47,6 @@ function buildBasicLands({ colorIdentity, basicCount }) {
   const basics = [];
 
   if (colors.length === 0) {
-    // Incolore
     for (let i = 0; i < basicCount; i++) basics.push("Wastes");
     return basics;
   }
@@ -69,21 +65,17 @@ function buildBasicLands({ colorIdentity, basicCount }) {
 }
 
 function pickLandTargets(targetLands, colorIdentity) {
-  // Heuristiques EDH classiques (ta note EDHrec-like) :
-  // mono 36–37 ; bi 37 ; tri 38–39 ; 4–5c 39–40
   const ci = ciToArray(colorIdentity);
   const colors = ci.length;
 
   let lands = Number.isFinite(targetLands) ? targetLands : 37;
-  lands = clamp(lands, 34, 42); // garde une marge safe (l'utilisateur peut bouger ce slider)
+  lands = clamp(lands, 34, 42);
 
-  // Ratio non-basiques :  mono ~25–35%, bi/tri ~60–80%, 4–5c ~75–85%
+  // Ratio non-basiques : mono ~30%, bi ~65%, tri ~75%, 4–5c ~80%
   let nonBasic = Math.round(
-    lands *
-      (colors <= 1 ? 0.30 : colors === 2 ? 0.65 : colors === 3 ? 0.75 : 0.80)
+    lands * (colors <= 1 ? 0.30 : colors === 2 ? 0.65 : colors === 3 ? 0.75 : 0.80)
   );
 
-  // bornes raisonnables
   if (colors <= 1) nonBasic = clamp(nonBasic, 6, lands - 10);
   else if (colors === 2) nonBasic = clamp(nonBasic, 16, lands - 10);
   else if (colors >= 3) nonBasic = clamp(nonBasic, 22, lands - 8);
@@ -92,6 +84,7 @@ function pickLandTargets(targetLands, colorIdentity) {
   return { lands, nonBasic, basic };
 }
 
+// --- Handler ---
 export const handler = async (event) => {
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
@@ -117,7 +110,7 @@ export const handler = async (event) => {
   const {
     commander,           // string
     colorIdentity,       // string ex: "WU"
-    budget = 0,          // number (euros)
+    budget = 0,          // number
     mechanics = [],      // string[]
     ownedCards = [],     // string[]
     targetLands          // number (souhait utilisateur)
@@ -127,11 +120,9 @@ export const handler = async (event) => {
     return { statusCode: 400, body: JSON.stringify({ error: "Paramètre 'commander' requis." }) };
   }
 
-  // Calcul des objectifs
   const { lands, nonBasic, basic } = pickLandTargets(targetLands, colorIdentity);
-  const nonLandSlots = 99 - lands; // nombre de non-terrains à générer
+  const nonLandSlots = 99 - lands;
 
-  // Prépare la contrainte JSON stricte pour la sortie LLM
   const spellsSchema = {
     type: "object",
     properties: {
@@ -147,7 +138,6 @@ export const handler = async (event) => {
     additionalProperties: false
   };
 
-  // Prompt : strict, sans blabla, pour renvoyer UNIQUEMENT les sorts (non-terrains)
   const userContext = {
     commander,
     colorIdentity,
@@ -155,9 +145,8 @@ export const handler = async (event) => {
     mechanics,
     ownedCards,
     targets: {
-      lands, // à titre informatif; on demande uniquement les non-lands au LLM
+      lands,
       nonLandSlots,
-      // Rappels EDH : ratios et rôles indicatifs
       roles: { ramp: [8, 12], draw: [8, 12], spotRemoval: [6, 10], boardWipes: [2, 4] },
       mix: {
         creatures: [25, 35],
@@ -181,7 +170,7 @@ export const handler = async (event) => {
       "- Format Commander: singleton (1 exemplaire), cartes 'commander-legal', pas de cartes bannies.",
       "- Favoriser les cartes possédées par l'utilisateur si pertinentes.",
       "- Prendre en compte les mécaniques/thèmes fournis.",
-      "- Adapter environ aux ratios EDH classiques (purement indicatif) à l'intérieur des non-terrains.",
+      "- Adapter environ aux ratios EDH classiques (indicatifs) dans les non-terrains.",
       "Ne renvoie aucun texte d'explication humain hors JSON."
     ].join("\n");
 
@@ -206,8 +195,9 @@ FORMAT DE SORTIE STRICT:
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt }
       ],
-      response_format: {
-        type: "json_schema",
+      // ✅ Nouveau format (Responses API)
+      text: {
+        format: "json_schema",
         json_schema: {
           name: "SpellsOnly",
           schema: spellsSchema,
@@ -218,8 +208,7 @@ FORMAT DE SORTIE STRICT:
       temperature: 0.8
     });
 
-    // Extraction du JSON
-    // (Compat: certaines versions exposent output_text; on gère les deux cas)
+    // Extraction du JSON (compat output/output_text)
     let jsonText =
       resp?.output?.[0]?.content?.[0]?.text ??
       resp?.output_text ??
@@ -234,7 +223,7 @@ FORMAT DE SORTIE STRICT:
     };
   }
 
-  // Sécurité minimale côté serveur (unicité + trimming)
+  // Dédupe + nettoyage simple
   const set = new Set();
   const cleanSpells = [];
   for (const n of spells) {
@@ -244,21 +233,20 @@ FORMAT DE SORTIE STRICT:
       cleanSpells.push(name);
     }
   }
+
   if (cleanSpells.length !== nonLandSlots) {
-    // Si pour une raison X, le LLM n'a pas rendu le bon compte, on sort une erreur claire
     return {
       statusCode: 502,
       body: JSON.stringify({ error: `Le LLM n'a pas renvoyé ${nonLandSlots} non-terrains (reçu: ${cleanSpells.length}).` })
     };
   }
 
-  // ---- Construction de la manabase (non-basiques + basiques) ----
+  // ---- Construction de la manabase ----
   try {
     const nonBasicNames = await fetchNonBasicLands({ colorIdentity, count: nonBasic });
     const basicNames = buildBasicLands({ colorIdentity, basicCount: basic });
     const landsArray = [...nonBasicNames, ...basicNames];
 
-    // Réponse finale (shape identique à l’ancienne version Gemini)
     const finalDeck = {
       commanders: [commander],
       spells: cleanSpells,
