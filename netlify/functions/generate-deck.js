@@ -169,7 +169,7 @@ FORMAT DE SORTIE STRICT:
   "spells": [ /* exactement ${nonLandSlots} noms */ ]
 }`;
 
-    // ---- Appel OpenAI Responses API (Structured Outputs via text.format) ----
+    // ---- Appel OpenAI Responses API (text.format avec schema) ----
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
     let resp;
     try {
@@ -179,11 +179,10 @@ FORMAT DE SORTIE STRICT:
         text: {
           format: {
             type: "json_schema",
-            json_schema: {
-              name: "SpellsOnly",
-              schema: spellsSchema,
-              strict: true
-            }
+            // ⬇️ IMPORTANT: 'name' et 'schema' sont au MÊME niveau que 'type'
+            name: "SpellsOnly",
+            schema: spellsSchema,
+            strict: true
           }
         },
         max_output_tokens: 1200,
