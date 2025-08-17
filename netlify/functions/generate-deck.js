@@ -107,7 +107,7 @@ export const handler = async (event) => {
       return { statusCode: 500, body: JSON.stringify({ error: "MISSING_OPENAI_KEY", message: "OPENAI_API_KEY manquant côté serveur." }) };
     }
 
-    // Schéma JSON strict pour la sortie LLM (spells seulement)
+    // Schéma JSON (sans uniqueItems — non supporté par Structured Outputs)
     const spellsSchema = {
       type: "object",
       properties: {
@@ -115,8 +115,7 @@ export const handler = async (event) => {
           type: "array",
           items: { type: "string" },
           minItems: nonLandSlots,
-          maxItems: nonLandSlots,
-          uniqueItems: true
+          maxItems: nonLandSlots
         }
       },
       required: ["spells"],
@@ -169,7 +168,7 @@ FORMAT DE SORTIE STRICT:
   "spells": [ /* exactement ${nonLandSlots} noms */ ]
 }`;
 
-    // ---- Appel OpenAI Responses API (text.format avec schema) ----
+    // ---- Appel OpenAI Responses API (text.format avec schema, sans uniqueItems) ----
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
     let resp;
     try {
@@ -179,7 +178,6 @@ FORMAT DE SORTIE STRICT:
         text: {
           format: {
             type: "json_schema",
-            // ⬇️ IMPORTANT: 'name' et 'schema' sont au MÊME niveau que 'type'
             name: "SpellsOnly",
             schema: spellsSchema,
             strict: true
