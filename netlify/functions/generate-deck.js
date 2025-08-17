@@ -1,141 +1,276 @@
-// Fichier: netlify/functions/generate-deck.js (Version finale avec VOS pourcentages)
+// Fichier: netlify/functions/generate-deck.js
+// Objectif : garder le même endpoint et le même shape de réponse que l'ancienne version Gemini
+// Réponse: { commanders: string[], spells: string[], lands: string[] }
 
-export const handler = async (event) => {
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
+import OpenAI from "openai";
+
+// Utilitaires locaux pour la manabase (simples et robustes)
+function ciToArray(ciString = "") {
+  return (ciString || "")
+    .split("")
+    .map((c) => c.toUpperCase())
+    .filter((c) => ["W", "U", "B", "R", "G"].includes(c));
+}
+
+function clamp(n, min, max) {
+  return Math.max(min, Math.min(max, n));
+}
+
+async function fetchNonBasicLands({ colorIdentity, count }) {
+  // On récupère des terrains non-basiques "commander-legal", triés EDHrec
+  // via Scryfall. Node 20 => fetch global OK.
+  const ci = (colorIdentity || "").toLowerCase();
+  const q = [
+    "t:land",
+    "-is:basic",
+    "legal:commander",
+    "game:paper",
+    ci ? `ci<=${ci}` : ""
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const url =
+    "https://api.scryfall.com/cards/search?q=" +
+    encodeURIComponent(q) +
+    "&unique=cards&order=edhrec";
+
+  const r = await fetch(url);
+  if (!r.ok) {
+    throw new Error(`Scryfall lands ${r.status}`);
+  }
+  const json = await r.json();
+  const names = (json?.data || []).map((c) => c?.name).filter(Boolean);
+  return names.slice(0, count);
+}
+
+function buildBasicLands({ colorIdentity, basicCount }) {
+  const map = { W: "Plains", U: "Island", B: "Swamp", R: "Mountain", G: "Forest" };
+  const colors = ciToArray(colorIdentity);
+  const basics = [];
+
+  if (colors.length === 0) {
+    // Incolore
+    for (let i = 0; i < basicCount; i++) basics.push("Wastes");
+    return basics;
   }
 
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
+  const perColor = Math.floor(basicCount / colors.length);
+  let remainder = basicCount % colors.length;
+
+  for (const c of colors) {
+    for (let i = 0; i < perColor; i++) basics.push(map[c]);
+    if (remainder > 0) {
+      basics.push(map[c]);
+      remainder--;
+    }
+  }
+  return basics;
+}
+
+function pickLandTargets(targetLands, colorIdentity) {
+  // Heuristiques EDH classiques (ta note EDHrec-like) :
+  // mono 36–37 ; bi 37 ; tri 38–39 ; 4–5c 39–40
+  const ci = ciToArray(colorIdentity);
+  const colors = ci.length;
+
+  let lands = Number.isFinite(targetLands) ? targetLands : 37;
+  lands = clamp(lands, 34, 42); // garde une marge safe (l'utilisateur peut bouger ce slider)
+
+  // Ratio non-basiques :  mono ~25–35%, bi/tri ~60–80%, 4–5c ~75–85%
+  let nonBasic = Math.round(
+    lands *
+      (colors <= 1 ? 0.30 : colors === 2 ? 0.65 : colors === 3 ? 0.75 : 0.80)
+  );
+
+  // bornes raisonnables
+  if (colors <= 1) nonBasic = clamp(nonBasic, 6, lands - 10);
+  else if (colors === 2) nonBasic = clamp(nonBasic, 16, lands - 10);
+  else if (colors >= 3) nonBasic = clamp(nonBasic, 22, lands - 8);
+
+  const basic = Math.max(0, lands - nonBasic);
+  return { lands, nonBasic, basic };
+}
+
+export const handler = async (event) => {
+  if (event.httpMethod !== "POST") {
+    return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
+  }
+
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  if (!OPENAI_API_KEY) {
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: "Configuration serveur incorrecte: clé API manquante." }),
+      body: JSON.stringify({ error: "OPENAI_API_KEY manquant côté serveur." }),
     };
   }
 
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+  const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-  const params = JSON.parse(event.body);
-  const { commander, colorIdentity, budget, mechanics, targetLands, ownedCards } = params;
-
-  // ==================================================================
-  // ÉTAPE 1 : L'IA CHOISIT UNIQUEMENT LES SORTS (INCHANGÉ)
-  // ==================================================================
-
-  const nonLandSlots = 99 - targetLands;
-
-  const prompt = `
-    Tu es un expert en construction de deck pour Magic: The Gathering.
-    Ta mission est de sélectionner une liste de **${nonLandSlots} sorts non-terrain** pour un deck Commander.
-    NE PAS inclure de terrains.
-
-    **DONNÉES :**
-    - Commandant: "${commander}"
-    - Identité Couleur: "${colorIdentity}"
-    - Budget: ${budget} EUR pour l'ensemble du deck.
-
-    **INSTRUCTIONS STRICTES :**
-    1.  Tu dois sélectionner EXACTEMENT **${nonLandSlots} cartes**.
-    2.  Respecte une répartition équilibrée : environ 25 créatures, 10 ramp, 10 pioche, 12 interaction (removal/wipes), et le reste en cartes de synergie.
-    3.  Toutes les cartes doivent respecter l'identité couleur et être en un seul exemplaire.
-
-    **FORMAT DE SORTIE (JSON STRICT) :**
-    {
-      "spells": [/* Une liste de ${nonLandSlots} noms de cartes */]
-    }
-  `;
-
+  let payload;
   try {
-    const aiResponse = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { response_mime_type: "application/json" },
-        safetySettings: [
-            { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
-            { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
-            { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
-            { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
-        ]
-      }),
+    payload = JSON.parse(event.body || "{}");
+  } catch {
+    return { statusCode: 400, body: JSON.stringify({ error: "Corps JSON invalide." }) };
+  }
+
+  const {
+    commander,           // string
+    colorIdentity,       // string ex: "WU"
+    budget = 0,          // number (euros)
+    mechanics = [],      // string[]
+    ownedCards = [],     // string[]
+    targetLands          // number (souhait utilisateur)
+  } = payload;
+
+  if (!commander || typeof commander !== "string") {
+    return { statusCode: 400, body: JSON.stringify({ error: "Paramètre 'commander' requis." }) };
+  }
+
+  // Calcul des objectifs
+  const { lands, nonBasic, basic } = pickLandTargets(targetLands, colorIdentity);
+  const nonLandSlots = 99 - lands; // nombre de non-terrains à générer
+
+  // Prépare la contrainte JSON stricte pour la sortie LLM
+  const spellsSchema = {
+    type: "object",
+    properties: {
+      spells: {
+        type: "array",
+        items: { type: "string" },
+        minItems: nonLandSlots,
+        maxItems: nonLandSlots,
+        uniqueItems: true
+      }
+    },
+    required: ["spells"],
+    additionalProperties: false
+  };
+
+  // Prompt : strict, sans blabla, pour renvoyer UNIQUEMENT les sorts (non-terrains)
+  const userContext = {
+    commander,
+    colorIdentity,
+    budget,
+    mechanics,
+    ownedCards,
+    targets: {
+      lands, // à titre informatif; on demande uniquement les non-lands au LLM
+      nonLandSlots,
+      // Rappels EDH : ratios et rôles indicatifs
+      roles: { ramp: [8, 12], draw: [8, 12], spotRemoval: [6, 10], boardWipes: [2, 4] },
+      mix: {
+        creatures: [25, 35],
+        instantsPlusSorceries: [10, 20],
+        artifactsPlusEnchantments: [10, 15],
+        planeswalkers: [0, 5]
+      }
+    }
+  };
+
+  const client = new OpenAI({ apiKey: OPENAI_API_KEY });
+
+  // ---- Appel LLM (non-terrains uniquement) ----
+  let spells = [];
+  try {
+    const systemPrompt = [
+      "Tu es un générateur de decks MTG Commander.",
+      "Renvoie UNIQUEMENT un JSON valide conforme au schéma demandé.",
+      "Contraintes obligatoires :",
+      "- Respecter l'identité couleur du commandant (aucune carte hors identité).",
+      "- Format Commander: singleton (1 exemplaire), cartes 'commander-legal', pas de cartes bannies.",
+      "- Favoriser les cartes possédées par l'utilisateur si pertinentes.",
+      "- Prendre en compte les mécaniques/thèmes fournis.",
+      "- Adapter environ aux ratios EDH classiques (purement indicatif) à l'intérieur des non-terrains.",
+      "Ne renvoie aucun texte d'explication humain hors JSON."
+    ].join("\n");
+
+    const userPrompt =
+`Contexte utilisateur (JSON):
+${JSON.stringify(userContext, null, 2)}
+
+Tâche:
+- Génère une liste de ${nonLandSlots} NOMS DE CARTES **non-terrains** (string exacts),
+- Toutes légales en Commander et compatibles avec l'identité ${colorIdentity || "(inconnue)"},
+- Singleton (pas de doublons),
+- Si possible, inclure quelques cartes présentes dans 'ownedCards', lorsque pertinentes.
+
+FORMAT DE SORTIE STRICT:
+{
+  "spells": [ /* exactement ${nonLandSlots} noms */ ]
+}`;
+
+    const resp = await client.responses.create({
+      model: MODEL,
+      input: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt }
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: "SpellsOnly",
+          schema: spellsSchema,
+          strict: true
+        }
+      },
+      max_output_tokens: 1200,
+      temperature: 0.8
     });
 
-    const aiResponseBody = await aiResponse.json();
-    if (!aiResponse.ok) throw new Error(aiResponseBody?.error?.message || `Erreur API Gemini`);
+    // Extraction du JSON
+    // (Compat: certaines versions exposent output_text; on gère les deux cas)
+    let jsonText =
+      resp?.output?.[0]?.content?.[0]?.text ??
+      resp?.output_text ??
+      "";
 
-    const generatedText = aiResponseBody?.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!generatedText) throw new Error("L'IA n'a pas pu générer de liste de sorts.");
+    const parsed = JSON.parse(jsonText);
+    spells = Array.isArray(parsed.spells) ? parsed.spells : [];
+  } catch (e) {
+    return {
+      statusCode: 500,
+      body: JSON.stringify({ error: `OpenAI error: ${e.message}` })
+    };
+  }
 
-    const aiDeckPart = JSON.parse(generatedText);
-    const spells = aiDeckPart.spells;
-
-    // ==================================================================
-    // ÉTAPE 2 : LE CODE CONSTRUIT LA BASE DE MANA AVEC VOS RÈGLES
-    // ==================================================================
-    const colorCount = colorIdentity.length;
-    let basicLandPercentage;
-
-    // Application stricte de votre analyse en pourcentage
-    if (colorCount <= 1) {
-        basicLandPercentage = 0.85; // ~85% de terrains de base
-    } else if (colorCount === 2) {
-        basicLandPercentage = 0.50; // ~50% de terrains de base
-    } else if (colorCount === 3) {
-        basicLandPercentage = 0.33; // ~33% de terrains de base
-    } else { // 4 ou 5 couleurs
-        basicLandPercentage = 0.20; // ~20% de terrains de base
+  // Sécurité minimale côté serveur (unicité + trimming)
+  const set = new Set();
+  const cleanSpells = [];
+  for (const n of spells) {
+    const name = String(n || "").split("//")[0].trim();
+    if (name && !set.has(name)) {
+      set.add(name);
+      cleanSpells.push(name);
     }
+  }
+  if (cleanSpells.length !== nonLandSlots) {
+    // Si pour une raison X, le LLM n'a pas rendu le bon compte, on sort une erreur claire
+    return {
+      statusCode: 502,
+      body: JSON.stringify({ error: `Le LLM n'a pas renvoyé ${nonLandSlots} non-terrains (reçu: ${cleanSpells.length}).` })
+    };
+  }
 
-    // Calcul exact basé sur les pourcentages
-    const basicLandCount = Math.round(targetLands * basicLandPercentage);
-    const nonBasicLandCount = targetLands - basicLandCount;
+  // ---- Construction de la manabase (non-basiques + basiques) ----
+  try {
+    const nonBasicNames = await fetchNonBasicLands({ colorIdentity, count: nonBasic });
+    const basicNames = buildBasicLands({ colorIdentity, basicCount: basic });
+    const landsArray = [...nonBasicNames, ...basicNames];
 
-    // Recherche des meilleurs terrains non-basiques ("avec effet") sur Scryfall
-    // J'ajoute -t:basic pour être absolument certain de n'avoir que des terrains non-basiques
-    const scryfallQuery = `(type:land -type:basic) legal:commander ci<=${colorIdentity} order:edhrec usd<${budget > 0 ? budget / 10 : 10}`;
-    const scryfallResponse = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(scryfallQuery)}`);
-    const scryfallJson = await scryfallResponse.json();
-
-    const nonBasicLands = scryfallJson.data && scryfallJson.data.length > 0
-        ? scryfallJson.data.map(card => card.name).slice(0, nonBasicLandCount)
-        : [];
-
-    // Ajout des terrains de base ("sans effet")
-    const basicLands = [];
-    const basicsByColor = { W: "Plains", U: "Island", B: "Swamp", R: "Mountain", G: "Forest" };
-    if (colorCount > 0) {
-        const perColor = Math.floor(basicLandCount / colorCount);
-        let remainder = basicLandCount % colorCount;
-        for (const color of colorIdentity.split('')) {
-            const count = perColor + (remainder > 0 ? 1 : 0);
-            for (let i = 0; i < count; i++) {
-                basicLands.push(basicsByColor[color]);
-            }
-            remainder--;
-        }
-    } else if (basicLandCount > 0) { // Incolore
-        for (let i = 0; i < basicLandCount; i++) {
-            basicLands.push("Wastes");
-        }
-    }
-
+    // Réponse finale (shape identique à l’ancienne version Gemini)
     const finalDeck = {
-        commanders: [commander],
-        spells: spells,
-        lands: [...nonBasicLands, ...basicLands]
+      commanders: [commander],
+      spells: cleanSpells,
+      lands: landsArray
     };
 
     return {
       statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(finalDeck),
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(finalDeck)
     };
-
-  } catch (error) {
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: error.message }),
-    };
+  } catch (e) {
+    return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
   }
 };
