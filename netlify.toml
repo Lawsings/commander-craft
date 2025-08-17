@@ -1,4 +1,4 @@
-# Fichier: netlify.toml (Corrigé)
+# Fichier: netlify.toml (Version finale et correcte)
 
 [build]
   command = "npm run build"
