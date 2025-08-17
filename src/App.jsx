@@ -1,4 +1,4 @@
-// Fichier: src/App.jsx (modifié)
+// Fichier: src/App.jsx (modifié pour utiliser l'IA via Netlify Functions)
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCcw, Shuffle, Copy, Download, Upload, Settings2, Info, Sparkles, Trash2, Sun, Moon } from "lucide-react";
 
@@ -59,8 +59,8 @@ export default function App() {
   const [deckBudget, setDeckBudget] = useState(50);
   const [mechanics, setMechanics] = useState([]);
   const [limitNotice, setLimitNotice] = useState("");
-  const [weightOwned, setWeightOwned] = useState(1.0);
-  const [weightEdhrec, setWeightEdhrec] = useState(1.0);
+  const [weightOwned, setWeightOwned] = useState(1.0); // Conservé pour l'UI, mais non utilisé dans la logique IA
+  const [weightEdhrec, setWeightEdhrec] = useState(1.0); // Conservé pour l'UI, mais non utilisé dans la logique IA
   const [targets, setTargets] = useState({ ramp: { min: 10, max: 12 }, draw: { min: 9, max: 12 }, removal: { min: 8, max: 10 }, wraths: { min: 3, max: 5 } });
   const [ownedMap, setOwnedMap] = useState(new Map());
   const [uploadedFiles, setUploadedFiles] = useState([]);
@@ -78,95 +78,10 @@ export default function App() {
   const selectedCommanderCard = useCommanderResolution(commanderMode, chosenCommander, setDesiredCI, setError);
   const toggleMechanic = (key) => setMechanics(prev => prev.includes(key) ? prev.filter(k => k !== key) : (prev.length >= 3 ? (setLimitNotice("Maximum 3 mécaniques à la fois"), setTimeout(() => setLimitNotice(""), 1500), prev) : [...prev, key]));
 
-  // Logique de génération
-  const mechanicScore = (card) => mechanics.length ? MECHANIC_TAGS.reduce((s, m) => s + (mechanics.includes(m.key) && m.matchers.some(k => oracle(card).includes(k.toLowerCase())) ? 1 : 0), 0) : 0;
-  const sortByPreference = (pool) => { const rb = new Map(pool.map(c => [nameOf(c), Math.random()])); return [...pool].sort((a, b) => { const owA = ownedMap.has(nameOf(a).toLowerCase()) ? 1 : 0, owB = ownedMap.has(nameOf(b).toLowerCase()) ? 1 : 0; const sa = weightOwned * owA + weightEdhrec * edhrecScore(a) + 0.25 * mechanicScore(a); const sb = weightOwned * owB + weightEdhrec * edhrecScore(b) + 0.25 * mechanicScore(b); if (sa !== sb) return sb - sa; const pA = priceEUR(a), pB = priceEUR(b); return pA !== pB ? pA - pB : rb.get(nameOf(a)) - rb.get(nameOf(b)); }); };
-  const greedyPickUnique = (sortedPool, need, banned, currentCost, budget) => { const picks = []; const taken = new Set(banned); let cost = currentCost; for (const c of sortedPool) { if (picks.length >= need) break; const n = nameOf(c); if (taken.has(n)) continue; const p = priceEUR(c); if (budget > 0 && (cost + p) > budget) continue; picks.push(c); taken.add(n); cost += p; } return { picks, cost }; };
-  const buildManaBase = (ci, basicTarget) => { const colors = (ci || "").split(""); const basicsByColor = { W: "Plains", U: "Island", B: "Swamp", R: "Mountain", G: "Forest" }; if (colors.length === 0) return { Wastes: basicTarget }; const per = Math.floor(basicTarget / colors.length); let rem = basicTarget - per * colors.length; const lands = {}; for (const c of colors) { const n = basicsByColor[c]; lands[n] = per + (rem > 0 ? 1 : 0); rem--; } return lands; };
+  // Logique de génération (simplifiée)
   const countCats = (cards) => cards.reduce((a, c) => ({ ramp: a.ramp + (RE.RAMP.test(oracle(c)) || ((c.type_line || '').toLowerCase().includes('artifact') && oracle(c).includes('add one mana')) ? 1 : 0), draw: a.draw + (RE.DRAW.test(oracle(c)) ? 1 : 0), removal: a.removal + (RE.REMOVAL.test(oracle(c)) ? 1 : 0), wraths: a.wraths + (RE.WRATHS.test(oracle(c)) ? 1 : 0) }), { ramp: 0, draw: 0, removal: 0, wraths: 0 });
-  
-  const balanceSpells = (picks, pool, budget, spent) => {
-    const TARGETS = { ramp: targets.ramp.min, draw: targets.draw.min, removal: targets.removal.min, wraths: targets.wraths.min };
-    const byName = new Set(picks.map(nameOf));
-    const counts = countCats(picks);
-    const sorted = sortByPreference(pool);
-    const fits = (cat, c) => (cat === 'ramp' && RE.RAMP.test(oracle(c))) || (cat === 'draw' && RE.DRAW.test(oracle(c))) || (cat === 'removal' && RE.REMOVAL.test(oracle(c))) || (cat === 'wraths' && RE.WRATHS.test(oracle(c)));
-    const res = [...picks];
-    let currentSpent = spent;
-
-    for (const cat of Object.keys(TARGETS)) {
-        if (counts[cat] >= TARGETS[cat]) continue;
-        for (const c of sorted) {
-            const n = nameOf(c);
-            if (byName.has(n)) continue;
-            if (!fits(cat, c)) continue;
-
-            const p = priceEUR(c);
-            const idx = res.findIndex(x => !fits(cat, x));
-
-            if (idx >= 0) {
-                const oldCard = res[idx];
-                if (budget > 0 && (currentSpent - priceEUR(oldCard) + p) > budget) continue;
-
-                byName.delete(nameOf(oldCard));
-                res[idx] = c;
-                byName.add(n);
-                counts[cat]++;
-                currentSpent = currentSpent - priceEUR(oldCard) + p;
-            }
-            if (counts[cat] >= TARGETS[cat]) break;
-        }
-    }
-    return { picks: res, spent: currentSpent, targets: TARGETS, counts: countCats(res) };
-  };
-
   const pickCommander = async (ci) => { if (commanderMode === 'select' && selectedCommanderCard) return selectedCommanderCard; const q = ["legal:commander", "is:commander", "game:paper", "-is:funny", ci ? identityToQuery(ci) : "", "(type:\"legendary creature\" or (type:planeswalker and o:\"can be your commander\") or type:background)"].filter(Boolean).join(" "); for (let i = 0; i < 6; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; if (oracle(c).includes("companion")) continue; return c; } throw new Error("Impossible de trouver un commandant aléatoire conforme."); };
-  const maybeAddPartner = async (primary) => { const has = (oracle(primary).includes("partner") || (primary.keywords || []).some(k => k.toLowerCase().includes("partner"))); if (!allowPartner || !has) return null; const q = ["legal:commander", "is:commander", "game:paper", "-is:funny", "(keyword:partner or o:\"Partner with\")"].join(" "); for (let i = 0; i < 12; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; if (nameOf(c) === nameOf(primary)) continue; return c; } return null; };
-  const maybeAddBackground = async (primary) => { const wants = allowBackground && oracle(primary).includes("choose a background"); if (!wants) return null; const q = ["legal:commander", "type:background", "game:paper", identityToQuery(getCI(primary) || "wubrg")].join(" "); for (let i = 0; i < 10; i++) { const c = await sf.random(q); if (!isCommanderLegal(c)) continue; return c; } return null; };
-
-  const fetchPool = async (ci) => {
-    const base = `legal:commander game:paper ${identityToQuery(ci)} -is:funny`;
-    const mech = mechanics.length ? ` (${mechanics.map(k => {
-      const tag = MECHANIC_TAGS.find(m => m.key === k);
-      if (!tag) return "";
-      const parts = tag.matchers.map(m => `o:"${m}"`).join(" or ");
-      return `(${parts})`;
-    }).join(" or ")})` : "";
-    const spellsQ = `${base} -type:land -type:background${mech}`;
-    const landsQ = `${base} type:land -type:basic`;
-
-    const gather = async (q, b, pages = 2) => {
-      const order = q.includes("-type:land") ? "edhrec" : "cmc";
-      let page = await sf.search(q, { unique: "cards", order: order });
-      if (page && page.data) b.push(...page.data);
-      for (let i = 1; i < pages && page && page.has_more; i++) {
-        await sleep(100);
-        try {
-            const nextPageResponse = await fetch(page.next_page);
-            if (nextPageResponse.ok) {
-                page = await nextPageResponse.json();
-                if (page && page.data) b.push(...page.data);
-            } else {
-                break; 
-            }
-        } catch (e) {
-            console.error("Failed to fetch next page:", e);
-            break;
-        }
-      }
-    };
-
-    const spells = [], lands = [];
-    await gather(spellsQ, spells, 4);
-    await gather(landsQ, lands, 2);
-    return {
-      spells: distinctByName(spells).filter(isCommanderLegal),
-      lands: distinctByName(lands).filter(isCommanderLegal)
-    };
-  };
-
   async function buildLandCards(landsMap) { const out = []; for (const [n, q] of Object.entries(landsMap)) { try { const b = await bundleByName(n); out.push({ ...b, qty: q }); } catch { out.push({ name: n, qty: q, image: "", small: "", oracle_en: "", mana_cost: "", cmc: 0, prices: {}, scryfall_uri: "" }); } await sleep(60); } return out; }
-
   const identifySpecialCards = (cards) => {
     const winCons = new Set();
     const gameChangers = new Set();
@@ -182,24 +97,95 @@ export default function App() {
     setSpecialCards({ winCons, gameChangers });
   };
 
+  // ==================================================================
+  // NOUVELLE LOGIQUE DE GÉNÉRATION AVEC APPEL À L'IA
+  // ==================================================================
   const generate = async () => {
-    setError(""); setDeck(null); setCommandersExtraInfo({}); setSpecialCards({ winCons: new Set(), gameChangers: new Set() });
+    setError("");
+    setDeck(null);
+    setCommandersExtraInfo({});
+    setSpecialCards({ winCons: new Set(), gameChangers: new Set() });
     setGenerationProgress({ active: true, step: 'Initialisation...', percent: 0 });
 
+    // 1. On doit d'abord déterminer le commandant final et l'identité couleur
+    let finalCommanderCard;
     try {
-      setGenerationProgress({ active: true, step: 'Sélection du commandant...', percent: 10 });
-      const primary = await pickCommander(commanderMode === 'random' ? desiredCI : getCI(selectedCommanderCard));
-      let cmdrs = [primary];
-      const partner = await maybeAddPartner(primary);
-      const background = await maybeAddBackground(primary);
-      if (partner) cmdrs.push(partner);
-      else if (background) cmdrs.push(background);
-      let ci = getCI(primary);
-      if (cmdrs.length > 1) {
-        for (const c of cmdrs) ci = unionCI(ci, getCI(c));
+      if (commanderMode === 'select' && selectedCommanderCard) {
+        finalCommanderCard = selectedCommanderCard;
+      } else {
+        setGenerationProgress({ active: true, step: 'Sélection du commandant...', percent: 10 });
+        finalCommanderCard = await pickCommander(desiredCI); // La fonction pickCommander est conservée
+      }
+    } catch (e) {
+      setError(e.message || String(e));
+      setGenerationProgress({ active: false, step: '', percent: 0 });
+      return;
+    }
+
+    // On va chercher un partenaire ou un background si possible pour l'inclure dans le prompt
+    let cmdrs = [finalCommanderCard];
+    const hasPartner = (oracle(finalCommanderCard).includes("partner") || (finalCommanderCard.keywords || []).some(k => k.toLowerCase().includes("partner")));
+    const wantsBackground = oracle(finalCommanderCard).includes("choose a background");
+
+    let finalCommanderName = nameOf(finalCommanderCard);
+    // Note : La logique d'ajout de partenaire/background est simplifiée.
+    // On se contente de passer le commandant principal à l'IA qui se chargera de la synergie.
+    // Pour un résultat plus précis, on pourrait présélectionner un partenaire/background ici.
+
+    const finalCI = getCI(finalCommanderCard);
+
+    setGenerationProgress({ active: true, step: 'Envoi de la requête à l\'IA...', percent: 25 });
+
+    try {
+      // 2. Appel à notre nouvelle Netlify Function
+      const response = await fetch('/.netlify/functions/generate-deck', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          commander: finalCommanderName,
+          colorIdentity: finalCI,
+          budget: Number(deckBudget) || 0,
+          mechanics: mechanics,
+          ownedCards: Array.from(ownedMap.keys()),
+          targetLands: targetLands,
+        }),
+      });
+
+      if (!response.ok) {
+        const errText = await response.text();
+        try {
+            const errJson = JSON.parse(errText);
+            throw new Error(errJson.error || 'La génération du deck a échoué.');
+        } catch {
+             throw new Error('La génération du deck a échoué. Réponse invalide du serveur.');
+        }
       }
 
-      const commandersFull = cmdrs.map(bundleCard);
+      const aiDeck = await response.json(); // Le JSON généré par Gemini
+
+      setGenerationProgress({ active: true, step: 'Analyse de la réponse de l\'IA...', percent: 75 });
+
+      // 3. On traite la réponse de l'IA pour l'afficher
+      const allNames = [...new Set([...aiDeck.commanders, ...aiDeck.spells, ...aiDeck.lands])];
+      const cardObjects = await Promise.all(
+          allNames.map(name => sf.namedExact(name.split('//')[0].trim()).catch(e => null))
+      );
+
+      const validCards = cardObjects.filter(Boolean);
+
+      const commandersFull = validCards.filter(c => aiDeck.commanders.some(name => nameOf(c) === name));
+      const nonlandCardsRaw = validCards.filter(c => aiDeck.spells.some(name => nameOf(c) === name));
+      const landCardsRaw = validCards.filter(c => aiDeck.lands.some(name => nameOf(c) === name));
+
+      const landsMap = {};
+      landCardsRaw.forEach(l => {
+          const name = nameOf(l);
+          landsMap[name] = (landsMap[name] || 0) + 1;
+      });
+
+      // Calcul du coût total
+      const spent = validCards.reduce((total, card) => total + priceEUR(card), 0);
+      identifySpecialCards(validCards);
 
       const extraInfoPromises = commandersFull.map(c => fetchCommanderDeckCount(c.name));
       Promise.all(extraInfoPromises).then(results => {
@@ -208,99 +194,32 @@ export default function App() {
           setCommandersExtraInfo(newExtraInfo);
       });
 
-      setGenerationProgress({ active: true, step: 'Recherche des cartes...', percent: 25 });
-      const pool = await fetchPool(ci);
-
-      const totalBudget = Number(deckBudget) || 0;
-      let spent = cmdrs.reduce((s, c) => s + priceEUR(c), 0);
-      if (totalBudget > 0 && spent > totalBudget) {
-        throw new Error(`Le budget (${totalBudget.toFixed(2)}€) est déjà dépassé par le coût des commandants (${spent.toFixed(2)}€).`);
-      }
-
-      const initialLandsTarget = Math.max(32, Math.min(40, targetLands));
-      const spellsTarget = 100 - cmdrs.length - initialLandsTarget;
-
-      setGenerationProgress({ active: true, step: 'Sélection des sorts...', percent: 50 });
-      const spellsPref = sortByPreference(pool.spells);
-      const banned = new Set(cmdrs.map(nameOf));
-      let { picks: pickedSpells, cost: costAfterSpells } = greedyPickUnique(spellsPref, spellsTarget, banned, spent, totalBudget);
-      spent = costAfterSpells;
-
-      // === DEBUT DU PATCH ===
-      // S'assurer qu'on a le bon nombre de sorts, même si le budget est serré ou le pool limité.
-      if (pickedSpells.length < spellsTarget) {
-        const alreadyPickedNames = new Set(pickedSpells.map(nameOf));
-        const cheapestSpells = pool.spells
-          .filter(c => !banned.has(nameOf(c)) && !alreadyPickedNames.has(nameOf(c)))
-          .sort((a, b) => priceEUR(a) - priceEUR(b));
-        
-        while (pickedSpells.length < spellsTarget && cheapestSpells.length > 0) {
-          const spellToAdd = cheapestSpells.shift();
-          if (spellToAdd) {
-            pickedSpells.push(spellToAdd);
-          }
-        }
-      }
-      // === FIN DU PATCH ===
-
-      setGenerationProgress({ active: true, step: 'Équilibrage du deck...', percent: 75 });
-      // Recalculer le coût avant l'équilibrage
-      spent = cmdrs.reduce((s, c) => s + priceEUR(c), 0) + pickedSpells.reduce((s, c) => s + priceEUR(c), 0);
-      const balanced = balanceSpells(pickedSpells, pool.spells, totalBudget, spent);
-      pickedSpells = balanced.picks;
-      spent = balanced.spent;
-
-      const finalLandsCount = 100 - cmdrs.length - pickedSpells.length;
-
-      setGenerationProgress({ active: true, step: 'Construction de la base de mana...', percent: 90 });
-      const landsPref = sortByPreference(pool.lands);
-      
-      const nonBasicsTarget = Math.min(12, Math.max(8, Math.floor(finalLandsCount / 3)));
-      const chosenNonbasics = [];
-      for (const nb of landsPref) {
-        if (chosenNonbasics.length >= nonBasicsTarget) break;
-        const p = priceEUR(nb);
-        if (totalBudget > 0 && (spent + p) > totalBudget) continue;
-        chosenNonbasics.push(nb);
-        spent += p;
-      }
-      
-      const basicsNeeded = finalLandsCount - chosenNonbasics.length;
-      if (basicsNeeded < 0) {
-        throw new Error("Erreur de calcul de la base de mana (trop de terrains non-bases).");
-      }
-      const landsMap = buildManaBase(ci, basicsNeeded);
-      for (const nb of chosenNonbasics) {
-        landsMap[nameOf(nb)] = (landsMap[nameOf(nb)] || 0) + 1;
-      }
-
-      const nonlandCards = pickedSpells.map(bundleCard);
-      const landCards = await buildLandCards(landsMap);
-
-      identifySpecialCards([...commandersFull, ...nonlandCards]);
-
       setGenerationProgress({ active: true, step: 'Finalisation...', percent: 100 });
       await sleep(500);
 
       setDeck({
-        colorIdentity: ci,
-        commanders: cmdrs.map(nameOf),
-        commandersFull,
-        nonlands: Object.fromEntries(pickedSpells.map(c => [nameOf(c), 1])),
-        nonlandCards,
+        colorIdentity: finalCI,
+        commanders: commandersFull.map(nameOf),
+        commandersFull: commandersFull.map(bundleCard),
+        nonlands: Object.fromEntries(nonlandCardsRaw.map(c => [nameOf(c), 1])),
+        nonlandCards: nonlandCardsRaw.map(bundleCard),
         lands: landsMap,
-        landCards,
-        budget: totalBudget,
+        landCards: await buildLandCards(landsMap),
+        budget: Number(deckBudget) || 0,
         spent: Number(spent.toFixed(2)),
         balanceTargets: targets,
-        balanceCounts: countCats(pickedSpells)
+        balanceCounts: countCats(nonlandCardsRaw)
       });
+
     } catch (e) {
       setError(e.message || String(e));
     } finally {
       setGenerationProgress({ active: false, step: '', percent: 0 });
     }
   };
+  // ==================================================================
+  // FIN DE LA NOUVELLE LOGIQUE
+  // ==================================================================
 
   useEffect(() => {
     if (deck && commanderSectionRef.current) {
@@ -321,7 +240,10 @@ export default function App() {
   const removeUploadedFile = (id) => setUploadedFiles(prev => { const next = prev.filter(x => x.id !== id); const merged = new Map(); for (const file of next) { for (const [k, q] of file.map) { merged.set(k, (merged.get(k) || 0) + q); } } setOwnedMap(merged); return next; });
   const clearCollection = () => { setOwnedMap(new Map()); setUploadedFiles([]); };
 
-  const reequilibrer = async () => { if (!deck) return; try { setIsRebalancing(true); const ci = deck.colorIdentity; const base = `legal:commander game:paper ${identityToQuery(ci)} -is:funny -type:land -type:background`; let page = await sf.search(base, { unique: "cards", order: "edhrec" }); let pool = page.data; if (page.has_more) { const next = await fetch(page.next_page).then(r => r.json()); pool = pool.concat(next.data || []); } pool = distinctByName(pool).filter(isCommanderLegal); const currentNames = new Set(Object.keys(deck.nonlands)); const currentObjs = pool.filter(c => currentNames.has(nameOf(c))); const others = pool.filter(c => !currentNames.has(nameOf(c))); const totalBudget = deck.budget || 0; let spent = 0; const balanced = balanceSpells(currentObjs, others, totalBudget, spent); const newNonlands = Object.fromEntries(balanced.picks.map(c => [nameOf(c), 1])); const newNonlandCards = balanced.picks.map(bundleCard); setDeck(prev => ({ ...prev, nonlands: newNonlands, nonlandCards: newNonlandCards, balanceCounts: balanced.counts, balanceTargets: targets })); } finally { setIsRebalancing(false); } };
+  // La fonction de rééquilibrage doit aussi être modifiée ou supprimée car la logique est maintenant externe
+  const reequilibrer = async () => {
+    alert("Le rééquilibrage intelligent via l'IA sera bientôt disponible ! Pour l'instant, vous pouvez générer un nouveau deck avec les mêmes paramètres.");
+  };
 
   const deckSize = useMemo(() => { if (!deck) return 0; const cmd = deck.commanders?.length || 0; const nl = Object.values(deck?.nonlands || {}).reduce((a, b) => a + b, 0); const ld = Object.values(deck?.lands || {}).reduce((a, b) => a + b, 0); return cmd + nl + ld; }, [deck]);
   const nonlandsByType = useMemo(() => { if (!deck?.nonlandCards) return {}; const groups = {}; for (const c of deck.nonlandCards) { const k = primaryTypeLabel(c.type_line); (groups[k] ||= []).push(c); } const order = ["Créatures", "Artefacts", "Enchantements", "Éphémères", "Rituels", "Planeswalkers", "Batailles", "Autres"]; const sorted = {}; for (const k of order) { if (groups[k]) sorted[k] = groups[k]; } return sorted; }, [deck]);
@@ -414,33 +336,22 @@ export default function App() {
               {/* Colonne 2 */}
               <div className="flex flex-col space-y-4">
                 <div className="space-y-3">
-                  <div>
-                    <label className="muted text-sm">Prioriser ma collection: {weightOwned.toFixed(1)}x</label>
-                    <input type="range" min={0} max={2} step={0.1} value={weightOwned} onChange={e => setWeightOwned(Number(e.target.value))} className="w-full" />
-                    <p className="text-xs muted mt-1">Donne plus de poids aux cartes que vous possédez déjà.</p>
-                  </div>
-                  <div>
-                    <label className="muted text-sm">Prioriser EDHREC: {weightEdhrec.toFixed(1)}x</label>
-                    <input type="range" min={0} max={2} step={0.1} value={weightEdhrec} onChange={e => setWeightEdhrec(Number(e.target.value))} className="w-full" />
-                    <p className="text-xs muted mt-1">Privilégie les cartes populaires et synergiques selon EDHREC.</p>
-                  </div>
+                   <p className="text-xs muted">Note: Les curseurs de priorisation ne sont pas utilisés avec le générateur IA, mais les cartes de votre collection sont envoyées comme suggestion.</p>
                 </div>
                 <div><label className="muted text-sm">Nombre de terrains visé: {targetLands}</label><input type="range" min={32} max={40} step={1} value={targetLands} onChange={e => setTargetLands(Number(e.target.value))} className="w-full" /></div>
                 <div>
                   <label className="muted text-sm">Budget global du deck (EUR)</label>
                   <input type="text" inputMode="numeric" pattern="[0-9]*" placeholder="0 = sans limite" value={deckBudget || ''} onChange={e => setDeckBudget(Number(e.target.value.replace(/\D/g,'')) || 0)} className="w-full input" />
                 </div>
-                <div className="flex items-center justify-between"><div className="space-y-1"><span>Autoriser Partner</span><p className="text-xs muted">N'influence pas la recherche ; ajoute un partenaire si possible.</p></div><input type="checkbox" checked={allowPartner} onChange={e => setAllowPartner(e.target.checked)} /></div>
-                <div className="flex items-center justify-between"><div className="space-y-1"><span>Autoriser Background</span><p className="text-xs muted">Si le commandant le permet.</p></div><input type="checkbox" checked={allowBackground} onChange={e => setAllowBackground(e.target.checked)} /></div>
               </div>
 
               {/* Colonne 3 */}
               <div className="flex flex-col space-y-4">
                 <div>
                   <div className="flex items-center gap-2 mb-4"><Upload className="h-5 w-5"/><h2 className="font-medium">Collection personnelle (optionnel)</h2></div>
-                  <p className="text-sm muted">Importe un ou plusieurs fichiers pour prioriser tes cartes lors de la génération.</p>
+                  <p className="text-sm muted">Importez des fichiers. L'IA tentera d'inclure les cartes pertinentes.</p>
                   <div className="mt-3"><FileDrop onFiles={async (files)=>{ for(const f of files){ await handleCollectionFile(f); } }}/></div>
-                  <div className="mt-3 text-sm">{uploadedFiles.length>0 ? (<div className="space-y-2"><div className="muted text-xs">Fichiers importés ({uploadedFiles.length}) :</div><ul className="grid grid-cols-1 gap-2">{uploadedFiles.map(f=> (<li key={f.id} className="flex items-center justify-between glass-strong rounded-lg px-3 py-1.5"><span className="truncate" title={f.name}>{f.name}</span><button className="btn p-1.5" onClick={()=>removeUploadedFile(f.id)} title="Supprimer ce fichier"><Trash2 className="h-4 w-4"/></button></li>))}</ul></div>) : (<div className="muted">Aucun fichier importé pour l’instant.</div>)}</div>
+                  <div className="mt-3 text-sm">{uploadedFiles.length>0 ? (<div className="space-y-2"><div className="muted text-xs">Fichiers importés ({uploadedFiles.length}) :</div><ul className="grid grid-cols-1 gap-2">{uploadedFiles.map(f=> (<li key={f.id} className="flex items-center justify-between glass-strong rounded-lg px-3 py-1.5"><span className="truncate" title={f.name}>{f.name}</span><button className="btn p-1.5" onClick={()=>removeUploadedFile(f.id)} title="Supprimer ce fichier"><Trash2 className="h-4 w-4"/></button></li>))}</ul></div>) : (<div className="muted">Aucun fichier importé.</div>)}</div>
                   <div className="flex items-center justify-between mt-3"><p>Cartes reconnues: <span className="font-semibold">{ownedMap.size}</span></p><button className="btn" onClick={clearCollection}>Réinitialiser</button></div>
                 </div>
               </div>
@@ -448,15 +359,15 @@ export default function App() {
 
             {/* Actions principales */}
             <hr className="my-6 border-white/20" />
-            <button className="w-full btn-primary justify-center" disabled={generationProgress.active} onClick={generate}>{generationProgress.active ? (<RefreshCcw className="h-4 w-4 animate-spin"/>):(<Shuffle className="h-4 w-4"/>)} {generationProgress.active ?"Génération...":"Générer un deck"}</button>
+            <button className="w-full btn-primary justify-center" disabled={generationProgress.active} onClick={generate}>{generationProgress.active ? (<RefreshCcw className="h-4 w-4 animate-spin"/>):(<Shuffle className="h-4 w-4"/>)} {generationProgress.active ?"Génération par l'IA...":"Générer un deck avec l'IA"}</button>
             {error && <p className="text-sm mt-3 text-center" style={{color:'#ffb4c2'}}>{error}</p>}
-            <div className="text-xs muted flex items-start gap-2 mt-3"><Info className="h-4 w-4 mt-0.5 flex-shrink-0"/><p>Règles EDH respectées (100 cartes, singleton sauf bases, identité couleur, légalités). Budget heuristique glouton.</p></div>
+            <div className="text-xs muted flex items-start gap-2 mt-3"><Info className="h-4 w-4 mt-0.5 flex-shrink-0"/><p>Le deck est généré par une IA. Le budget et les mécaniques sont des instructions, le résultat peut varier. La liste finale respecte les règles EDH (100 cartes, singleton, identité).</p></div>
           </div>
 
           {/* Colonne des résultats */}
           <div className="space-y-8">
             <div className="glass p-6">
-              <h3 className="font-medium mb-3">Cibles d’équilibrage (éditables)</h3>
+              <h3 className="font-medium mb-3">Cibles d’équilibrage (pour affichage)</h3>
               <div className="grid md:grid-cols-2 gap-4 text-sm">
                 {["ramp","draw","removal","wraths"].map(cat=> (
                   <div key={cat} className="flex items-center gap-2">
@@ -468,13 +379,13 @@ export default function App() {
                   </div>
                 ))}
               </div>
-              <p className="text-xs muted mt-2">L’algo vise le <b>min</b> comme plancher; le max est indicatif pour l’affichage.</p>
+              <p className="text-xs muted mt-2">Ces valeurs ne sont utilisées que pour le suivi visuel du deck généré par l'IA.</p>
             </div>
             <div className="glass p-6" ref={commanderSectionRef}>
               <div className="flex items-center gap-2 mb-4"><Sparkles className="h-5 w-5"/><h2 className="font-medium">Résultat</h2></div>
-              {!deck ? (<div className="text-sm muted">Configure les options puis clique « Générer un deck ».</div>) : (
+              {!deck ? (<div className="text-sm muted">Configurez les options puis cliquez sur « Générer un deck avec l'IA ».</div>) : (
                 <div className="space-y-6">
-                  {/* Section Statistiques (déplacée en haut) */}
+                  {/* Section Statistiques */}
                   <div className="glass-strong rounded-xl p-4">
                     <h3 className="font-medium mb-3">Statistiques</h3>
                     <div className="space-y-3">
@@ -487,7 +398,6 @@ export default function App() {
                         </div>
                       ) : (<div className="muted text-sm">Aucune statistique.</div>)}
 
-                      {/* Infos générales et popularité du commandant */}
                       <div className="glass rounded-lg p-3 text-sm space-y-1">
                         <p><span className="muted">Identité:</span> {deck.colorIdentity || "(Colorless)"} • <span className="muted">Taille:</span> {deckSize} cartes • <span className="muted">Budget:</span> {deck.budget ? `${deck.budget}€` : 'Aucun'}</p>
                         {deck.commandersFull.map(c => {
@@ -524,14 +434,14 @@ export default function App() {
                   <div className="grid md:grid-cols-2 gap-4"><Progress label="Ramp" value={deck.balanceCounts?.ramp||0} targetMin={targets.ramp.min} targetMax={targets.ramp.max}/><Progress label="Pioche" value={deck.balanceCounts?.draw||0} targetMin={targets.draw.min} targetMax={targets.draw.max}/><Progress label="Anti-bêtes / Answers" value={deck.balanceCounts?.removal||0} targetMin={targets.removal.min} targetMax={targets.removal.max}/><Progress label="Wraths" value={deck.balanceCounts?.wraths||0} targetMin={targets.wraths.min} targetMax={targets.wraths.max}/></div>
                   <div><h3 className="text-lg font-medium">Sorts non-terrains ({Object.values(deck.nonlands).reduce((a,b)=>a+b,0)})</h3>{Object.keys(nonlandsByType).length===0 ? (<p className="text-sm muted mt-1">Aucun sort détecté.</p>) : (<div className="space-y-4 mt-2">{Object.entries(nonlandsByType).map(([label, cards])=> (<div key={label}><h4 className="text-sm muted mb-2">{label} ({cards.length})</h4><div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">{cards.map((c,idx)=> { const owned = isOwned(c.name); return (<CardTile key={c.name+idx} card={c} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}} isWinCon={specialCards.winCons.has(c.name)} isGameChanger={specialCards.gameChangers.has(c.name)}/>); })}</div></div>))}</div>)}</div>
                   <div><h3 className="text-lg font-medium">Terrains ({Object.values(deck.lands).reduce((a,b)=>a+b,0)})</h3>{Array.isArray(deck.landCards) && deck.landCards.length>0 ? (<div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2 mt-2">{deck.landCards.map((lc,idx)=> { const owned = isOwned(lc.name); return (<CardTile key={lc.name+idx} card={lc} qty={lc.qty} owned={owned} onOpen={(cc, ow)=>{setModalCard(cc); setModalOwned(ow); setShowModal(true);}}/>); })}</div>) : (<div className="grid md:grid-cols-2 gap-2 mt-2 text-sm">{Object.entries(deck.lands).map(([n,q]) => (<div key={n} className="flex justify-between glass-strong rounded-lg px-3 py-1.5"><span>{n}</span><span className="muted">x{q}</span></div>))}</div>)}</div>
-                  <div className="grid grid-cols-1 lg:flex lg:flex-wrap lg:gap-2 gap-2"><button className="btn" onClick={copyList}><Copy className="inline-block h-4 w-4"/>Copier</button><button className="btn" onClick={exportJson}><Download className="inline-block h-4 w-4"/>JSON</button><button className="btn-primary" onClick={exportTxt}><Download className="inline-block h-4 w-4"/>TXT</button><button className="btn" onClick={reequilibrer} disabled={isRebalancing}><Sparkles className="inline-block h-4 w-4"/>Rééquilibrer</button></div>
+                  <div className="grid grid-cols-1 lg:flex lg:flex-wrap lg:gap-2 gap-2"><button className="btn" onClick={copyList}><Copy className="inline-block h-4 w-4"/>Copier</button><button className="btn" onClick={exportJson}><Download className="inline-block h-4 w-4"/>JSON</button><button className="btn-primary" onClick={exportTxt}><Download className="inline-block h-4 w-4"/>TXT</button><button className="btn" onClick={reequilibrer} disabled={isRebalancing}><Sparkles className="inline-block h-4 w-4"/>Rééquilibrer (Bientôt !)</button></div>
                 </div>
               )}
             </div>
           </div>
         </div>
         <CardModal open={showModal} card={modalCard} owned={modalOwned} onClose={() => setShowModal(false)} />
-        <footer className="mt-10 text-xs muted">Fait avec ❤️ — Scryfall API (popularité EDHREC via <code>edhrec_rank</code>). Non affilié à WotC.</footer>
+        <footer className="mt-10 text-xs muted">Fait avec ❤️ — Scryfall API. L'IA est propulsée par Google Gemini. Non affilié à WotC.</footer>
       </div>
     </div>
   );
