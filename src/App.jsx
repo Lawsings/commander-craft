@@ -377,13 +377,5 @@ export default function App() {
         <footer className="mt-10 text-xs muted">Fait avec ❤️ — Scryfall API. L'IA est propulsée par Google Gemini. Non affilié à WotC.</footer>
       </div>
     </div>
-    <script>
-  (function () {
-    var s = document.createElement('script');
-    s.src = "https://cdn.jsdelivr.net/npm/eruda";
-    s.onload = function () { eruda.init(); };
-    document.body.appendChild(s);
-  })();
-</script>
   );
 }
