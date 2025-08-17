@@ -1,6 +1,4 @@
-// Fichier: netlify/functions/generate-deck.js (Version finale et native)
-
-// On n'a plus besoin de "import fetch from 'node-fetch';" !
+// Fichier: netlify/functions/generate-deck.js (Version avec Prompt Renforcé)
 
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -19,30 +17,37 @@ export const handler = async (event) => {
 
   const params = JSON.parse(event.body);
 
+  // ==================================================================
+  // PROMPT AMÉLIORÉ
+  // ==================================================================
   const prompt = `
-    Tu es un expert mondialement reconnu dans la construction de decks pour le format Commander de Magic: The Gathering.
-    Ta mission est de construire le meilleur deck possible en respectant les contraintes suivantes.
+    Tu es un expert en construction de decks pour le format Commander de Magic: The Gathering. Ta mission est de construire un deck légal, cohérent et optimisé en suivant des règles extrêmement strictes.
 
-    **Contraintes strictes :**
-    - Commandant(s) : ${params.commander}
-    - Identité couleur : ${params.colorIdentity}
-    - Le deck doit contenir exactement 100 cartes, commandant inclus.
-    - Le format de sortie doit être UNIQUEMENT un objet JSON valide, sans aucun texte avant ou après, ni formatage markdown.
+    **RÈGLES ABSOLUES ET NON NÉGOCIABLES :**
+    1.  **TOTAL DE CARTES** : Le deck final DOIT contenir EXACTEMENT 100 cartes au total. Pas 99, pas 101. Exactement 100.
+    2.  **INCLUSION DU COMMANDANT** : Le commandant fourni, "${params.commander}", DOIT être inclus dans la liste "commanders" de ta réponse. Il compte comme 1 carte sur les 100.
+    3.  **SINGLETON** : Toutes les cartes, à l'exception des terrains de base (Plains, Island, Swamp, Mountain, Forest), doivent être en un seul exemplaire.
+    4.  **IDENTITÉ COULEUR** : Toutes les cartes du deck DOIVENT respecter l'identité couleur de "${params.colorIdentity}".
 
-    **Orientations et préférences :**
-    - Budget approximatif : ${params.budget} EUR. Ne choisis pas de cartes excessivement chères si des alternatives moins coûteuses et efficaces existent.
-    - Thèmes/Mécaniques à privilégier : ${params.mechanics.join(', ') || 'Aucune préférence particulière'}.
-    - Nombre de terrains cibles : Environ ${params.targetLands}. Assure-toi que la base de mana est solide, avec des terrains non-basiques pertinents si le budget le permet.
-    - Équilibre du deck : Le deck doit avoir une bonne courbe de mana, suffisamment de pioche (draw), d'accélération de mana (ramp), et de gestion des menaces (removal).
+    **DIRECTIVES DE CONSTRUCTION :**
+    - **Commandant** : ${params.commander}
+    - **Budget** : Approximativement ${params.budget} EUR. Évite les cartes très chères si des alternatives efficaces existent.
+    - **Thèmes/Mécaniques** : Privilégier ${params.mechanics.join(', ') || 'une stratégie générale cohérente avec le commandant'}.
+    - **BASE DE MANA** :
+        - Vise un total d'environ **${params.targetLands} terrains**.
+        - Limite le nombre de terrains **non-basiques** à un maximum de 10 à 15, surtout pour les budgets serrés, afin de garantir la consistance des couleurs. Le reste doit être des terrains de base.
+    - **Équilibre du deck** : Assure une bonne courbe de mana, environ 10+ cartes pour l'accélération (ramp), 10+ cartes pour la pioche (draw), et 8-10 cartes pour la gestion des menaces (removal).
 
-    **Cartes possédées (optionnel) :**
-    Si possible, essaie d'inclure des cartes de cette liste si elles sont pertinentes pour la stratégie :
-    ${(params.ownedCards || []).slice(0, 100).join(', ')}
+    **VÉRIFICATION FINALE AVANT DE RÉPONDRE :**
+    - Le total des cartes (commanders + spells + lands) est-il EXACTEMENT 100 ?
+    - Le commandant "${params.commander}" est-il bien dans la liste "commanders" ?
+    - L'identité couleur est-elle respectée pour chaque carte ?
 
-    **Format de sortie (JSON uniquement) :**
-    Réponds avec un objet JSON qui a la structure suivante : { "commanders": ["Nom de la carte"], "spells": ["Nom de la carte", ...], "lands": ["Nom de la carte", ...] }.
-    Ne mets pas les quantités, juste les noms des cartes. Les "spells" incluent créatures, artefacts, etc.
+    **FORMAT DE SORTIE (JSON STRICT) :**
+    Réponds UNIQUEMENT avec un objet JSON valide, sans texte ou formatage markdown avant ou après. La structure doit être :
+    { "commanders": ["${params.commander}"], "spells": ["Nom de carte", ...], "lands": ["Nom de carte", ...] }
   `;
+  // ==================================================================
 
   try {
     const response = await fetch(apiUrl, {
@@ -59,7 +64,6 @@ export const handler = async (event) => {
     const responseBody = await response.json();
 
     if (!response.ok) {
-      console.error("Réponse d'erreur de l'API Gemini:", JSON.stringify(responseBody, null, 2));
       const errorMsg = responseBody?.error?.message || `Erreur API Gemini: ${response.statusText}`;
       throw new Error(errorMsg);
     }
@@ -67,8 +71,7 @@ export const handler = async (event) => {
     const generatedText = responseBody?.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!generatedText) {
-      console.error("La réponse de Gemini est invalide ou vide. Réponse complète:", JSON.stringify(responseBody, null, 2));
-      throw new Error("L'IA n'a pas pu générer de deck. Essayez de modifier les paramètres (cela peut être dû à un filtre de sécurité).");
+      throw new Error("L'IA n'a pas pu générer de deck. Essayez de modifier les paramètres.");
     }
 
     return {
@@ -78,7 +81,6 @@ export const handler = async (event) => {
     };
 
   } catch (error) {
-    console.error("Erreur dans le bloc try/catch principal:", error);
     return {
       statusCode: 500,
       body: JSON.stringify({ error: error.message }),
