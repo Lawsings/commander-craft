@@ -1,4 +1,4 @@
-// Fichier: netlify/functions/generate-deck.js (Version finale avec "Blueprint")
+// Fichier: netlify/functions/generate-deck.js (Version finale avec votre analyse experte)
 
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -18,49 +18,83 @@ export const handler = async (event) => {
   const params = JSON.parse(event.body);
 
   // ==================================================================
-  // PROMPT FINAL AVEC BLUEPRINT STRICT
+  // INTÉGRATION DE VOTRE ANALYSE EXPERTE DANS LE PROMPT
   // ==================================================================
-  // On calcule le nombre de sorts à trouver
-  const nonLandSlots = 99 - params.targetLands;
+
+  // 1. Déterminer le nombre de couleurs
+  const colorCount = params.colorIdentity.length;
+  let landBlueprint;
+
+  // 2. Créer le "Blueprint" de la base de mana dynamiquement
+  const totalLands = params.targetLands;
+  if (colorCount <= 1) {
+    const baseLands = Math.round(totalLands * 0.85); // 85% terrains de base
+    const nonBaseLands = totalLands - baseLands;
+    landBlueprint = `
+    - **Base de Mana (Monocolore) : ${totalLands} terrains**
+    - Choisis **${nonBaseLands}** terrains non-basiques "utilitaires" (ex: Tour du Reliquaire, Nykthos).
+    - Remplis les **${baseLands}** places restantes avec le terrain de base approprié.`;
+  } else if (colorCount === 2) {
+    const baseLands = Math.round(totalLands * 0.50); // 50% terrains de base
+    const nonBaseLands = totalLands - baseLands;
+    landBlueprint = `
+    - **Base de Mana (Bicolore) : ${totalLands} terrains**
+    - Choisis **${nonBaseLands}** terrains non-basiques qui produisent les deux couleurs (bi-lands, etc.).
+    - Remplis les **${baseLands}** places restantes avec une répartition équilibrée de terrains de base.`;
+  } else if (colorCount === 3) {
+    const baseLands = Math.round(totalLands * 0.33); // 33% terrains de base
+    const nonBaseLands = totalLands - baseLands;
+    landBlueprint = `
+    - **Base de Mana (Tricolore) : ${totalLands} terrains**
+    - Choisis **${nonBaseLands}** terrains non-basiques qui produisent plusieurs couleurs (triomes, shock lands, etc.).
+    - Remplis les **${baseLands}** places restantes avec une petite répartition de chaque terrain de base (environ ${Math.floor(baseLands / 3)} de chaque).`;
+  } else { // 4 ou 5 couleurs
+    const baseLands = Math.round(totalLands * 0.15); // 15% terrains de base
+    const nonBaseLands = totalLands - baseLands;
+    landBlueprint = `
+    - **Base de Mana (4-5 Couleurs) : ${totalLands} terrains**
+    - La base de mana doit être composée presque exclusivement de **${nonBaseLands}** terrains non-basiques produisant plusieurs couleurs.
+    - N'inclus qu'un ou deux terrains de base de chaque couleur, pour un total de **${baseLands}** terrains de base.`;
+  }
+
+  const nonLandSlots = 99 - totalLands;
+  const creatureSlots = Math.round(nonLandSlots * 0.45); // ~30% du deck total
+  const interactionSlots = Math.round(nonLandSlots * 0.30); // ~20% du deck
+  const rampDrawSlots = Math.round(nonLandSlots * 0.30); // ~20% du deck
 
   const prompt = `
-    Tu es un expert en construction de decks pour le format Commander de Magic: The Gathering.
-    Ta mission est de construire un deck en suivant un "blueprint" (modèle) extrêmement strict.
+    Tu es un expert en construction de decks pour le format Commander de Magic: The Gathering, et tu dois suivre un plan de construction très précis basé sur une analyse professionnelle.
 
-    **RÈGLES ABSOLUES ET NON NÉGOCIABLES :**
-    1.  **TOTAL DE CARTES** : Le deck final DOIT contenir EXACTEMENT 100 cartes.
-    2.  **COMMANDANT** : Le commandant est "${params.commander}". Il compte comme 1 carte.
-    3.  **SINGLETON** : Toutes les cartes, sauf les terrains de base, DOIVENT être en un seul exemplaire.
-    4.  **IDENTITÉ COULEUR** : Toutes les cartes DOIVENT respecter l'identité couleur de "${params.colorIdentity}".
+    **RÈGLES ABSOLUES :**
+    1.  **TOTAL DE CARTES** : Exactement 100.
+    2.  **COMMANDANT** : "${params.commander}" doit être dans la liste "commanders".
+    3.  **SINGLETON** : Un seul exemplaire de chaque carte, sauf les terrains de base.
+    4.  **IDENTITÉ COULEUR** : Respecter l'identité de "${params.colorIdentity}".
 
     ---
 
-    **BLUEPRINT DU DECK À SUIVRE À LA LETTRE :**
+    **PLAN DE CONSTRUCTION DU DECK :**
 
-    Tu DOIS sélectionner un total de **${nonLandSlots} sorts** et **${params.targetLands} terrains**.
+    **PARTIE 1 : LA BASE DE MANA (${totalLands} terrains)**
+    Tu dois suivre ces instructions à la lettre :
+    ${landBlueprint}
 
-    **1. Terrains (${params.targetLands} cartes) :**
-    - Choisis **10** terrains non-basiques pertinents pour la stratégie et le budget.
-    - Remplis les **${params.targetLands - 10}** places restantes avec des terrains de base (Plains, Island, Swamp, Mountain, Forest) appropriés pour l'identité couleur.
-
-    **2. Sorts (${nonLandSlots} cartes) :**
-    Tu DOIS respecter la répartition suivante. Le total de ces catégories doit faire exactement ${nonLandSlots}.
-    - **Créatures : 25 cartes.** Choisis des créatures qui synergisent avec le commandant et la stratégie.
-    - **Accélération de Mana (Ramp) : 10 cartes.** (Ex: Sol Ring, artefacts de mana, sorts de recherche de terrain).
-    - **Pioche (Draw) : 10 cartes.** (Ex: Rhystic Study, sorts pour piocher, créatures faisant piocher).
-    - **Gestion des menaces (Removal) : 10 cartes.** (Ex: Swords to Plowshares, sorts pour détruire/exiler des permanents).
-    - **Nettoyages de table (Board Wipes) : 4 cartes.** (Ex: Wrath of God, Blasphemous Act).
-    - **"Slots Flexibles" : ${nonLandSlots - (25 + 10 + 10 + 10 + 4)} cartes.** Utilise ces places pour des cartes qui renforcent les thèmes/mécaniques de "${params.mechanics.join(', ') || 'la stratégie générale'}", des tuteurs, ou des cartes uniques.
+    **PARTIE 2 : LES SORTS (${nonLandSlots} sorts)**
+    Tu dois respecter la répartition suivante :
+    - **Créatures (${creatureSlots} cartes) :** Choisis des créatures synergiques.
+    - **Accélération & Pioche (~${rampDrawSlots} cartes) :** Vise environ 10-12 cartes pour l'accélération de mana (Ramp) et 10-12 pour la pioche (Draw).
+    - **Interaction (~${interactionSlots} cartes) :** Vise environ 8-10 cartes de gestion ciblée (Removal) et 3-5 nettoyages de table (Board Wipes).
+    - Le reste des places doit être utilisé pour des cartes qui supportent les thèmes/mécaniques de "${params.mechanics.join(', ') || 'la stratégie générale'}".
 
     ---
 
     **VÉRIFICATION FINALE AVANT DE RÉPONDRE :**
-    - Le total (1 commandant + ${params.targetLands} terrains + ${nonLandSlots} sorts) est-il 100 ?
-    - As-tu exactement 25 créatures ?
-    - La base de mana est-elle correcte avec ${params.targetLands - 10} terrains de base ?
+    - Le total des cartes est-il 100 ?
+    - La base de mana correspond-elle au plan pour un deck à ${colorCount} couleur(s) ?
+    - La répartition des sorts est-elle respectée ?
 
     **FORMAT DE SORTIE (JSON STRICT) :**
-    Réponds UNIQUEMENT avec un objet JSON valide. La structure doit être :
+    Réponds UNIQUEMENT avec un objet JSON. La structure doit être :
     { "commanders": ["${params.commander}"], "spells": ["Nom de carte", ...], "lands": ["Nom de carte", "Plains", "Island", ...] }
   `;
   // ==================================================================
@@ -74,7 +108,6 @@ export const handler = async (event) => {
         generationConfig: {
             response_mime_type: "application/json",
         },
-        // On ajoute un safety setting pour être moins restrictif
         safetySettings: [
             { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
             { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
@@ -94,7 +127,6 @@ export const handler = async (event) => {
     const generatedText = responseBody?.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!generatedText) {
-      // Si la réponse est vide, c'est souvent à cause d'un blocage de sécurité malgré tout.
       if (responseBody?.candidates?.[0]?.finishReason === 'SAFETY') {
           throw new Error("La génération a été bloquée par les filtres de sécurité de l'IA. Essayez un commandant ou des mécaniques différentes.");
       }
