@@ -7,12 +7,6 @@
 [build.environment]
   NODE_VERSION = "20"
 
-# Configuration pour les fonctions Serverless
-[functions]
-  directory = "netlify/functions/"
-  timeout = 25 # Augmente le temps d'exécution max à 25 secondes
-  node_bundler = "esbuild"
-
 # Redirection pour les Single Page Applications (SPA)
 [[redirects]]
   from = "/*"
