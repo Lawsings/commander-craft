@@ -1,4 +1,6 @@
-// Fichier: src/utils.js (Nettoyé)
+// Fichier: utils.js (Complet et Nettoyé)
+
+/***************** Scryfall API *****************/
 export const sf = {
   async search(q, opts = {}) {
     const params = new URLSearchParams({ q, unique: opts.unique || "cards", ...opts });
@@ -18,6 +20,7 @@ export const sf = {
   },
 };
 
+/***************** Listes de cartes spéciales *****************/
 export const WIN_CONDITIONS = new Set([
   "craterhoof behemoth", "expropriate", "torment of hailfire", "approach of the second sun",
   "aetherflux reservoir", "thassa's oracle", "finale of devastation", "insurrection",
@@ -34,6 +37,7 @@ export const GAME_CHANGERS = new Set([
   "flawless maneuver", "deadly rollick", "force of will"
 ]);
 
+/***************** Constantes et Utilitaires *****************/
 export const MECHANIC_TAGS = [
   { key: "+1+1", label: "+1/+1 Counters", category: "S" },
   { key: "artifacts", label: "Artifacts Matter", category: "S" },
@@ -74,6 +78,7 @@ export const getCI = (c) => ciMask((c?.color_identity || []).join(""));
 export const unionCI = (a, b) => ciMask(Array.from(new Set([...(a || "").split(""), ...(b || "").split("")])).join(""));
 export const priceEUR = (c) => Number(c?.prices?.eur) || Number(c?.prices?.eur_foil) || 0;
 
+/***************** Helpers pour les cartes *****************/
 export function bundleCard(c) {
   const f = c.card_faces || [];
   const face = (i, type) => f[i]?.image_uris?.[type] || "";
@@ -109,8 +114,9 @@ export const primaryTypeLabel = (tl) => {
   return "Autres";
 };
 
+/***************** Résolution de nom FR/EN *****************/
 export async function resolveCommanderByAnyName(name) {
-  try { const en = await sf.namedExact(name); if (isCommanderLegal(en)) return en; } catch {}
+  try { const en = await sf.namedExact(name); if (isCommanderLegal(en)) return en; } catch { }
   const term = `legal:commander name:"${name}" (type:legendary or o:"can be your commander")`;
   const fr = await sf.search(`${term} lang:fr unique:prints order:released`).catch(() => null);
   if (fr?.data?.[0]) {
@@ -124,29 +130,37 @@ export async function resolveCommanderByAnyName(name) {
   throw new Error(`Impossible de résoudre le nom: ${name}`);
 }
 
+/***************** Parser d'import de collection *****************/
 export async function parseCollectionFile(file) {
   const text = await file.text(); const ext = file.name.split('.').pop().toLowerCase(); const rows = [];
-  if (ext === "json") { try { const data = JSON.parse(text); if (Array.isArray(data)) for (const it of data) { if (it?.name) rows.push({ name: String(it.name).trim(), qty: Number(it.quantity || it.qty || 1) || 1 }); } } catch {} }
+  if (ext === "json") { try { const data = JSON.parse(text); if (Array.isArray(data)) for (const it of data) { if (it?.name) rows.push({ name: String(it.name).trim(), qty: Number(it.quantity || it.qty || 1) || 1 }); } } catch { } }
   else if (["csv", "tsv", "tab"].includes(ext)) {
     const lines = text.split(/\r?\n/).filter(Boolean); const [h0, ...rest] = lines; const headers = h0.toLowerCase().split(/,|\t|;/).map(s => s.trim()); const hasHeader = headers.includes('name'); const dataLines = hasHeader ? rest : lines;
     for (const line of dataLines) { const cols = line.split(/,|\t|;/).map(s => s.trim()); let name = "", qty = 1; if (hasHeader) { const obj = Object.fromEntries(cols.map((v, i) => [headers[i] || `c${i}`, v])); name = obj.name || obj.card || ""; qty = Number(obj.count || obj.qty || obj.quantity || 1) || 1; } else { const [a, b] = cols; if (/^\d+$/.test(a)) { qty = Number(a); name = b; } else if (/^\d+$/.test(b)) { qty = Number(b); name = a; } else { name = line.trim(); qty = 1; } } if (name) rows.push({ name, qty }); }
-  } else {
+  }
+  else {
     for (const line of text.split(/\r?\n/)) { const m = line.match(/^\s*(\d+)\s+(.+?)\s*$/); if (m) rows.push({ name: m[2].trim(), qty: Number(m[1]) }); else if (line.trim()) rows.push({ name: line.trim(), qty: 1 }); }
   }
   const map = new Map(); for (const { name, qty } of rows) { const k = name.toLowerCase(); map.set(k, (map.get(k) || 0) + qty); }
   return map;
 }
 
+/***************** Autocomplete Search *****************/
 export async function searchCommandersAnyLang(q) {
     const base = `legal:commander (type:"legendary creature" or (type:planeswalker and o:"can be your commander") or type:background) name:${q}`;
     const [en, fr] = await Promise.all([
         sf.search(`${base} unique:prints order:edhrec`),
         sf.search(`${base} lang:fr unique:prints order:edhrec`)
     ]);
-    const pool = [...(en.data || []), ...(fr.data || [])].reduce((acc, card) => {
-        if (!acc.some(c => c.oracle_id === card.oracle_id)) acc.push(card);
-        return acc;
-    }, []).slice(0, 20);
+    // On utilise un Map pour dédoublonner par oracle_id pour être plus robuste
+    const distinctPool = new Map();
+    [...(en.data || []), ...(fr.data || [])].forEach(card => {
+        if (!distinctPool.has(card.oracle_id)) {
+            distinctPool.set(card.oracle_id, card);
+        }
+    });
+    const pool = Array.from(distinctPool.values()).slice(0, 20);
+
     return pool.map(card => ({
         id: card.id, oracle_id: card.oracle_id,
         display: card.printed_name || card.name, canonical: card.name, type_line: card.type_line,
@@ -155,6 +169,7 @@ export async function searchCommandersAnyLang(q) {
     }));
 }
 
+/***************** EDHREC Util *****************/
 export async function fetchCommanderDeckCount(cardName) {
   if (!cardName) return null;
   const slug = cardName.toLowerCase().split('//')[0].trim().replace(/,+/g, '').replace(/\s+/g, '-');
@@ -164,7 +179,7 @@ export async function fetchCommanderDeckCount(cardName) {
     const json = await response.json();
     return json?.container?.json_dict?.card?.num_decks || null;
   } catch (error) {
-    console.error("Erreur EDHREC:", error);
+    console.error("Erreur lors de la récupération des données EDHREC:", error);
     return null;
   }
 }
