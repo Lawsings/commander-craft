@@ -1,6 +1,13 @@
 // netlify/functions/generate-deck.js
 import OpenAI from "openai";
 
+// ------- CORS (dev cross-origin: localhost -> netlify.app) -------
+const CORS = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
+
 // ---------- Utils ----------
 function ciToArray(ciString = "") {
   return (ciString || "")
@@ -16,9 +23,11 @@ async function fetchNonBasicLands({ colorIdentity, count }) {
     "t:land", "-is:basic", "legal:commander", "game:paper",
     ci ? `ci<=${ci}` : ""
   ].filter(Boolean).join(" ");
+
   const url = "https://api.scryfall.com/cards/search?q=" +
               encodeURIComponent(q) +
               "&unique=cards&order=edhrec";
+
   const r = await fetch(url);
   if (!r.ok) throw new Error(`Scryfall lands HTTP ${r.status}`);
   const json = await r.json();
@@ -55,9 +64,15 @@ function pickLandTargets(targetLands, colorIdentity) {
 // ---------- Handler ----------
 export const handler = async (event) => {
   const DEBUG = process.env.DEBUG_FUNCTION === "1";
+
+  // Pré-vol CORS
+  if (event.httpMethod === "OPTIONS") {
+    return { statusCode: 204, headers: { ...CORS }, body: "" };
+  }
+
   try {
     if (event.httpMethod !== "POST") {
-      return { statusCode: 405, body: JSON.stringify({ error: "Method Not Allowed" }) };
+      return { statusCode: 405, headers: { ...CORS }, body: JSON.stringify({ error: "Method Not Allowed" }) };
     }
 
     const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -66,7 +81,9 @@ export const handler = async (event) => {
 
     let payload;
     try { payload = JSON.parse(event.body || "{}"); }
-    catch { return { statusCode: 400, body: JSON.stringify({ error: "Corps JSON invalide." }) }; }
+    catch {
+      return { statusCode: 400, headers: { ...CORS }, body: JSON.stringify({ error: "Corps JSON invalide." }) };
+    }
 
     const {
       commander,
@@ -78,235 +95,8 @@ export const handler = async (event) => {
     } = payload;
 
     if (!commander || typeof commander !== "string") {
-      return { statusCode: 400, body: JSON.stringify({ error: "Paramètre 'commander' requis." }) };
+      return { statusCode: 400, headers: { ...CORS }, body: JSON.stringify({ error: "Paramètre 'commander' requis." }) };
     }
 
     const { lands, nonBasic, basic } = pickLandTargets(targetLands, colorIdentity);
-    const nonLandSlots = 99 - lands;
-
-    // --- Mode MOCK : pour tester sans OpenAI ---
-    if (USE_MOCK) {
-      const fakeSpells = [];
-      for (let i = 1; i <= nonLandSlots; i++) fakeSpells.push(`Mock Spell ${i}`);
-      const nonBasicNames = ["Command Tower","Exotic Orchard","Path of Ancestry"].slice(0, nonBasic);
-      while (nonBasicNames.length < nonBasic) nonBasicNames.push("Temple of the False God");
-      const basicNames = buildBasicLands({ colorIdentity, basicCount: basic });
-
-      return {
-        statusCode: 200,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ commanders: [commander], spells: fakeSpells, lands: [...nonBasicNames, ...basicNames] })
-      };
-    }
-
-    if (!OPENAI_API_KEY) {
-      return { statusCode: 500, body: JSON.stringify({ error: "MISSING_OPENAI_KEY", message: "OPENAI_API_KEY manquant côté serveur." }) };
-    }
-
-    // Schéma JSON (Structured Outputs) — pas de uniqueItems (non supporté)
-    const spellsSchema = {
-      type: "object",
-      properties: {
-        spells: {
-          type: "array",
-          items: { type: "string" },
-          minItems: nonLandSlots,
-          maxItems: nonLandSlots
-        }
-      },
-      required: ["spells"],
-      additionalProperties: false
-    };
-
-    const userContext = {
-      commander,
-      colorIdentity,
-      budget,
-      mechanics,
-      ownedCards,
-      targets: {
-        lands,
-        nonLandSlots,
-        roles: { ramp: [8,12], draw: [8,12], spotRemoval: [6,10], boardWipes: [2,4] },
-        mix: {
-          creatures: [25,35],
-          instantsPlusSorceries: [10,20],
-          artifactsPlusEnchantments: [10,15],
-          planeswalkers: [0,5]
-        }
-      }
-    };
-
-    const systemPrompt = [
-      "Tu es un générateur de decks MTG Commander.",
-      "Renvoie UNIQUEMENT un JSON valide conforme au schéma demandé.",
-      "Contraintes obligatoires :",
-      "- Identité couleur respectée.",
-      "- Format Commander: singleton, légal Commander, pas de bannies.",
-      "- Favoriser ownedCards si pertinent.",
-      "- Prendre en compte mechanics/thèmes.",
-      "- Ratios EDH indicatifs dans les non-terrains.",
-      "Ne renvoie aucun texte d'explication humain hors JSON."
-    ].join("\n");
-
-    const userPrompt =
-`Contexte utilisateur (JSON):
-${JSON.stringify(userContext, null, 2)}
-
-Tâche:
-- Génère une liste de ${nonLandSlots} NOMS DE CARTES **non-terrains** (string exacts),
-- Légales en Commander et compatibles avec l'identité ${colorIdentity || "(inconnue)"},
-- Singleton (pas de doublons),
-- Inclure si possible des cartes présentes dans 'ownedCards' si pertinentes.
-
-FORMAT DE SORTIE STRICT:
-{
-  "spells": [ /* exactement ${nonLandSlots} noms */ ]
-}`;
-
-    // ---- Appel OpenAI Responses API (text.format avec schema) ----
-    const client = new OpenAI({ apiKey: OPENAI_API_KEY });
-    let resp;
-    try {
-      resp = await client.responses.create({
-        model: MODEL,
-        input: `${systemPrompt}\n\n${userPrompt}`,
-        text: {
-          format: {
-            type: "json_schema",
-            name: "SpellsOnly",
-            schema: spellsSchema,
-            strict: true
-          }
-        },
-        max_output_tokens: 1200,
-        temperature: 0.8
-      });
-    } catch (e) {
-      const status = e?.status || 502;
-      const details = e?.error || e?.response || e?.message || String(e);
-      if (DEBUG) return { statusCode: status, body: JSON.stringify({ error: "OPENAI_REQUEST_FAILED", details }) };
-      return { statusCode: status, body: JSON.stringify({ error: "OPENAI_REQUEST_FAILED" }) };
-    }
-
-    const jsonText =
-      resp?.output_text ??
-      resp?.output?.[0]?.content?.[0]?.text ??
-      "";
-
-    if (!jsonText) {
-      const msg = "Réponse OpenAI vide (jsonText manquant).";
-      return { statusCode: 502, body: JSON.stringify({ error: "EMPTY_OPENAI_RESPONSE", message: msg }) };
-    }
-
-    let spells;
-    try {
-      const parsed = JSON.parse(jsonText);
-      spells = Array.isArray(parsed.spells) ? parsed.spells : [];
-    } catch (e) {
-      const snippet = jsonText.slice(0, 400);
-      return { statusCode: 502, body: JSON.stringify({ error: "INVALID_OPENAI_JSON", snippet }) };
-    }
-
-    // Dédup + trim
-    const set = new Set();
-    let cleanSpells = [];
-    for (const n of spells) {
-      const name = String(n || "").split("//")[0].trim();
-      if (name && !set.has(name)) { set.add(name); cleanSpells.push(name); }
-    }
-
-    // --- Réparation automatique du compte ---
-    if (cleanSpells.length > nonLandSlots) {
-      cleanSpells = cleanSpells.slice(0, nonLandSlots);
-    }
-    if (cleanSpells.length < nonLandSlots) {
-      const missing = nonLandSlots - cleanSpells.length;
-
-      // Petit schéma pour la réparation (taille = missing)
-      const repairSchema = {
-        type: "object",
-        properties: {
-          spells: {
-            type: "array",
-            items: { type: "string" },
-            minItems: missing,
-            maxItems: missing
-          }
-        },
-        required: ["spells"],
-        additionalProperties: false
-      };
-
-      const repairPrompt =
-`Corrige le compte. Fournis exactement ${missing} noms de cartes **non-terrains**, légales en Commander, compatibles avec l'identité ${colorIdentity || "(inconnue)"}.
-Aucun doublon avec cette liste : ${JSON.stringify(cleanSpells)}
-Respecte le format STRICT :
-{ "spells": [ /* exactement ${missing} noms */ ] }`;
-
-      try {
-        const repair = await client.responses.create({
-          model: MODEL,
-          input: repairPrompt,
-          text: {
-            format: {
-              type: "json_schema",
-              name: "SpellsRepair",
-              schema: repairSchema,
-              strict: true
-            }
-          },
-          max_output_tokens: 400,
-          temperature: 0.6
-        });
-
-        const repairText =
-          repair?.output_text ??
-          repair?.output?.[0]?.content?.[0]?.text ??
-          "";
-        const parsedRepair = JSON.parse(repairText || "{}");
-        const additions = Array.isArray(parsedRepair.spells) ? parsedRepair.spells : [];
-
-        for (const n of additions) {
-          const name = String(n || "").split("//")[0].trim();
-          if (name && !set.has(name)) { set.add(name); cleanSpells.push(name); }
-        }
-      } catch (e) {
-        if (DEBUG) {
-          return { statusCode: 502, body: JSON.stringify({ error: "REPAIR_FAILED", details: e?.message || String(e) }) };
-        }
-        // on continue, et on vérifiera ci-dessous
-      }
-    }
-
-    // Si malgré la réparation, ça ne colle pas, on renvoie une erreur explicite
-    if (cleanSpells.length !== nonLandSlots) {
-      return { statusCode: 502, body: JSON.stringify({
-        error: "WRONG_COUNT",
-        expected: nonLandSlots,
-        got: cleanSpells.length
-      }) };
-    }
-
-    // Lands
-    let landsArray = [];
-    try {
-      const nonBasicNames = await fetchNonBasicLands({ colorIdentity, count: nonBasic });
-      const basicNames = buildBasicLands({ colorIdentity, basicCount: basic });
-      landsArray = [...nonBasicNames, ...basicNames];
-    } catch (e) {
-      const msg = e?.message || String(e);
-      if (DEBUG) return { statusCode: 502, body: JSON.stringify({ error: "LANDS_BUILD_FAILED", message: msg }) };
-      return { statusCode: 502, body: JSON.stringify({ error: "LANDS_BUILD_FAILED" }) };
-    }
-
-    const finalDeck = { commanders: [commander], spells: cleanSpells, lands: landsArray };
-    return { statusCode: 200, headers: { "Content-Type": "application/json" }, body: JSON.stringify(finalDeck) };
-
-  } catch (err) {
-    const message = err?.message || String(err);
-    const payload = { error: "INTERNAL_ERROR", message };
-    if (process.env.DEBUG_FUNCTION === "1") payload.stack = err?.stack || null;
-    return { statusCode: 500, body: JSON.stringify(payload) };
-  }
-};
+    // Si tu ajoutes Partner plus tard, remplace p
