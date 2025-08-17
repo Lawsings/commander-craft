@@ -1,6 +1,9 @@
-// Fichier: src/utils.js (Nettoyé)
+// Fichier: utils.js
+
+/***************** Scryfall API *****************/
 export const sf = {
   async search(q, opts = {}) {
+    // CORRECTION : On retire l'ordre aléatoire par défaut pour correspondre à la branche 'main'
     const params = new URLSearchParams({ q, unique: opts.unique || "cards", ...opts });
     const r = await fetch(`https://api.scryfall.com/cards/search?${params}`);
     if (!r.ok) throw new Error(`Scryfall ${r.status}`);
@@ -18,6 +21,7 @@ export const sf = {
   },
 };
 
+/***************** Listes de cartes spéciales *****************/
 export const WIN_CONDITIONS = new Set([
   "craterhoof behemoth", "expropriate", "torment of hailfire", "approach of the second sun",
   "aetherflux reservoir", "thassa's oracle", "finale of devastation", "insurrection",
@@ -26,35 +30,44 @@ export const WIN_CONDITIONS = new Set([
 ]);
 
 export const GAME_CHANGERS = new Set([
+  // Board Wipes
   "cyclonic rift", "damnation", "wrath of god", "blasphemous act", "toxic deluge", "farewell",
-  "austere command", "vanquish the horde", "sunfall", "sol ring", "mana crypt", "mana vault",
-  "jeweled lotus", "dark ritual", "jeska's will", "rhystic study", "smothering tithe",
-  "mystic remora", "dockside extortionist", "esper sentinel", "demonic tutor", "vampiric tutor",
-  "enlightened tutor", "worldly tutor", "mystical tutor", "fierce guardianship", "deflecting swat",
-  "flawless maneuver", "deadly rollick", "force of will"
+  "austere command", "vanquish the horde", "sunfall",
+  // Fast Mana & Rituals
+  "sol ring", "mana crypt", "mana vault", "jeweled lotus", "dark ritual", "jeska's will",
+  // Powerful Staples & Tutors
+  "rhystic study", "smothering tithe", "mystic remora", "dockside extortionist", "esper sentinel",
+  "demonic tutor", "vampiric tutor", "enlightened tutor", "worldly tutor", "mystical tutor",
+  // Free Interaction
+  "fierce guardianship", "deflecting swat", "flawless maneuver", "deadly rollick", "force of will"
 ]);
 
+
+/***************** Constantes et Utilitaires *****************/
 export const MECHANIC_TAGS = [
-  { key: "+1+1", label: "+1/+1 Counters", category: "S" },
-  { key: "artifacts", label: "Artifacts Matter", category: "S" },
-  { key: "tokens", label: "Tokens", category: "S" },
-  { key: "graveyard", label: "Graveyard / Reanimator", category: "S" },
-  { key: "spellslinger", label: "Spellslinger", category: "S" },
-  { key: "blink", label: "Blink / Flicker", category: "A" },
-  { key: "tribal", label: "Tribal", category: "A" },
-  { key: "landfall", label: "Landfall", category: "A" },
-  { key: "enchantress", label: "Enchantress", category: "A" },
-  { key: "sacrifice", label: "Sacrifice / Aristocrats", category: "A" },
-  { key: "voltron", label: "Voltron", category: "A" },
-  { key: "lifegain", label: "Lifegain", category: "A" },
-  { key: "cascade", label: "Cascade", category: "B" },
-  { key: "mill", label: "Mill", category: "B" },
-  { key: "group-hug", label: "Group Hug", category: "B" },
-  { key: "stax", label: "Stax", category: "B" },
-  { key: "storm", label: "Storm", category: "B" },
-  { key: "infect", label: "Infect", category: "B" },
-  { key: "superfriends", label: "Superfriends", category: "B" },
-  { key: "politics", label: "Politics / Goad", category: "B" },
+  // Catégorie S
+  { key: "+1+1", label: "+1/+1 Counters", category: "S", matchers: ["+1/+1 counter", "proliferate", "evolve", "outlast"] },
+  { key: "artifacts", label: "Artifacts Matter", category: "S", matchers: ["artifact you control", "improvise", "affinity for artifacts", "create a Treasure", "metalcraft"] },
+  { key: "tokens", label: "Tokens", category: "S", matchers: ["create a token", "token creature", "populate"] },
+  { key: "graveyard", label: "Graveyard / Reanimator", category: "S", matchers: ["return target creature card from your graveyard", "reanimate", "unearth", "persist", "undying", "dredge"] },
+  { key: "spellslinger", label: "Spellslinger", category: "S", matchers: ["instant or sorcery", "prowess", "magecraft", "copy target instant", "storm"] },
+  // Catégorie A
+  { key: "blink", label: "Blink / Flicker", category: "A", matchers: ["exile then return", "flicker", "phase out", "enters the battlefield "] },
+  { key: "tribal", label: "Tribal", category: "A", matchers: ["another target", "creatures you control get", "of the chosen type"] },
+  { key: "landfall", label: "Landfall", category: "A", matchers: ["landfall", "whenever a land enters the battlefield under your control", "search your library for a land"] },
+  { key: "enchantress", label: "Enchantress", category: "A", matchers: ["enchantment spell", "constellation", "aura spell", "whenever you cast an enchantment"] },
+  { key: "sacrifice", label: "Sacrifice / Aristocrats", category: "A", matchers: ["sacrifice a", "whenever you sacrifice", "devour", "exploit", "whenever a creature dies"] },
+  { key: "voltron", label: "Voltron", category: "A", matchers: ["equipment", "aura", "equipped creature", "enchanted creature", "commander damage"] },
+  { key: "lifegain", label: "Lifegain", category: "A", matchers: ["you gain life", "lifelink", "whenever you gain life"] },
+  // Catégorie B
+  { key: "cascade", label: "Cascade", category: "B", matchers: ["cascade"] },
+  { key: "mill", label: "Mill", category: "B", matchers: ["put the top", "cards of their library into their graveyard", "mill"] },
+  { key: "group-hug", label: "Group Hug", category: "B", matchers: ["each player draws", "each player creates", "each player may"] },
+  { key: "stax", label: "Stax", category: "B", matchers: ["can't cast spells", "can't attack", "enters the battlefield tapped", "stax"] },
+  { key: "storm", label: "Storm", category: "B", matchers: ["storm"] },
+  { key: "infect", label: "Infect", category: "B", matchers: ["infect", "proliferate"] },
+  { key: "superfriends", label: "Superfriends", category: "B", matchers: ["planeswalker", "loyalty ability", "ultimate"] },
+  { key: "politics", label: "Politics / Goad", category: "B", matchers: ["goad", "goaded", "monarch", "initiative"] },
 ];
 
 export const RE = {
@@ -72,21 +85,27 @@ export const oracle = (c) => (c?.oracle_text || "").toLowerCase();
 export const isCommanderLegal = (c) => c?.legalities?.commander === "legal";
 export const getCI = (c) => ciMask((c?.color_identity || []).join(""));
 export const unionCI = (a, b) => ciMask(Array.from(new Set([...(a || "").split(""), ...(b || "").split("")])).join(""));
-export const priceEUR = (c) => Number(c?.prices?.eur) || Number(c?.prices?.eur_foil) || 0;
+export const priceEUR = (c) => { const e = Number(c?.prices?.eur); const f = Number(c?.prices?.eur_foil); return isNaN(e) ? (isNaN(f) ? 0 : f) : e; };
+export const edhrecScore = (c) => { const r = Number(c?.edhrec_rank) || 0; const cap = 100000; return r ? Math.max(0, 1 - Math.min(r, cap) / cap) : 0; };
+const distinctBy = (keyFn) => (arr) => { const s = new Set(); return arr.filter(x => { const k = keyFn(x); if (s.has(k)) return false; s.add(k); return true; }); };
+export const distinctByOracle = distinctBy((c) => c?.oracle_id || c?.id || nameOf(c));
+export const distinctByName = distinctBy((c) => nameOf(c));
 
+
+/***************** Helpers pour les cartes *****************/
 export function bundleCard(c) {
   const f = c.card_faces || [];
-  const face = (i, type) => f[i]?.image_uris?.[type] || "";
+  const face = (i) => f[i]?.image_uris?.normal || f[i]?.image_uris?.large || f[i]?.image_uris?.small || "";
   return {
     name: nameOf(c),
     type_line: c.type_line || f[0]?.type_line || "",
-    image: c.image_uris?.normal || face(0, 'normal') || face(1, 'normal') || "",
-    small: c.image_uris?.small || face(0, 'small') || face(1, 'small') || "",
+    image: c.image_uris?.normal || c.image_uris?.large || face(0) || face(1) || "",
+    small: c.image_uris?.small || f[0]?.image_uris?.small || f[1]?.image_uris?.small || "",
     oracle_en: c.oracle_text || f.map(x => x.oracle_text).filter(Boolean).join('\n'),
     mana_cost: c.mana_cost || f.map(x => x.mana_cost).filter(Boolean).join(' / '),
-    cmc: c.cmc ?? 0,
+    cmc: typeof c.cmc === 'number' ? c.cmc : (Number(c.cmc) || 0),
     prices: c.prices || {},
-    scryfall_uri: c.scryfall_uri || '',
+    scryfall_uri: c.scryfall_uri || c.related_uris?.gatherer || '',
     edhrec_rank: c.edhrec_rank || null,
   };
 }
@@ -109,48 +128,51 @@ export const primaryTypeLabel = (tl) => {
   return "Autres";
 };
 
+/***************** Résolution de nom FR/EN *****************/
 export async function resolveCommanderByAnyName(name) {
-  try { const en = await sf.namedExact(name); if (isCommanderLegal(en)) return en; } catch {}
-  const term = `legal:commander name:"${name}" (type:legendary or o:"can be your commander")`;
+  try { const en = await sf.namedExact(name); if (isCommanderLegal(en)) return en; } catch { }
+  const term = `legal:commander name:\"${name}\" (type:legendary or o:\"can be your commander\")`;
   const fr = await sf.search(`${term} lang:fr unique:prints order:released`).catch(() => null);
-  if (fr?.data?.[0]) {
-    const enOfSame = await sf.search(`oracleid:${fr.data[0].oracle_id} lang:en order:released unique:prints`).catch(() => null);
-    const best = enOfSame?.data?.[0] || fr.data[0];
+  const any = fr?.data?.[0];
+  if (any) {
+    const oid = any.oracle_id;
+    const enOfSame = await sf.search(`oracleid:${oid} lang:en order:released unique:prints`).catch(() => null);
+    const best = enOfSame?.data?.[0] || any;
     if (isCommanderLegal(best)) return best;
   }
-  const gen = await sf.search(`legal:commander name:${name} (type:legendary or o:"can be your commander") order:edhrec`).catch(() => null);
-  const pick = gen?.data?.find(isCommanderLegal);
+  const gen = await sf.search(`legal:commander name:${name} (type:legendary or o:\"can be your commander\") order:edhrec`).catch(() => null);
+  const pick = gen?.data?.find(isCommanderLegal) || gen?.data?.[0];
   if (pick) return pick;
   throw new Error(`Impossible de résoudre le nom: ${name}`);
 }
 
+/***************** Parser d'import de collection *****************/
 export async function parseCollectionFile(file) {
   const text = await file.text(); const ext = file.name.split('.').pop().toLowerCase(); const rows = [];
-  if (ext === "json") { try { const data = JSON.parse(text); if (Array.isArray(data)) for (const it of data) { if (it?.name) rows.push({ name: String(it.name).trim(), qty: Number(it.quantity || it.qty || 1) || 1 }); } } catch {} }
+  if (ext === "json") { try { const data = JSON.parse(text); if (Array.isArray(data)) for (const it of data) { if (it?.name) rows.push({ name: String(it.name).trim(), qty: Number(it.quantity || it.qty || 1) || 1 }); } } catch { } }
   else if (["csv", "tsv", "tab"].includes(ext)) {
     const lines = text.split(/\r?\n/).filter(Boolean); const [h0, ...rest] = lines; const headers = h0.toLowerCase().split(/,|\t|;/).map(s => s.trim()); const hasHeader = headers.includes('name'); const dataLines = hasHeader ? rest : lines;
     for (const line of dataLines) { const cols = line.split(/,|\t|;/).map(s => s.trim()); let name = "", qty = 1; if (hasHeader) { const obj = Object.fromEntries(cols.map((v, i) => [headers[i] || `c${i}`, v])); name = obj.name || obj.card || ""; qty = Number(obj.count || obj.qty || obj.quantity || 1) || 1; } else { const [a, b] = cols; if (/^\d+$/.test(a)) { qty = Number(a); name = b; } else if (/^\d+$/.test(b)) { qty = Number(b); name = a; } else { name = line.trim(); qty = 1; } } if (name) rows.push({ name, qty }); }
-  } else {
+  }
+  else {
     for (const line of text.split(/\r?\n/)) { const m = line.match(/^\s*(\d+)\s+(.+?)\s*$/); if (m) rows.push({ name: m[2].trim(), qty: Number(m[1]) }); else if (line.trim()) rows.push({ name: line.trim(), qty: 1 }); }
   }
   const map = new Map(); for (const { name, qty } of rows) { const k = name.toLowerCase(); map.set(k, (map.get(k) || 0) + qty); }
   return map;
 }
 
+/***************** Autocomplete Search *****************/
 export async function searchCommandersAnyLang(q) {
-    const base = `legal:commander (type:"legendary creature" or (type:planeswalker and o:"can be your commander") or type:background) name:${q}`;
+    const base = `legal:commander (type:\"legendary creature\" or (type:planeswalker and o:\"can be your commander\") or type:background) name:${q}`;
     const [en, fr] = await Promise.all([
         sf.search(`${base} unique:prints order:edhrec`),
         sf.search(`${base} lang:fr unique:prints order:edhrec`)
     ]);
-    const pool = [...(en.data || []), ...(fr.data || [])].reduce((acc, card) => {
-        if (!acc.some(c => c.oracle_id === card.oracle_id)) acc.push(card);
-        return acc;
-    }, []).slice(0, 20);
+    const pool = distinctByOracle([...(en.data || []), ...(fr.data || [])]).slice(0, 20);
     return pool.map(card => ({
         id: card.id, oracle_id: card.oracle_id,
         display: card.printed_name || card.name, canonical: card.name, type_line: card.type_line,
-        image: card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || "",
+        image: card.image_uris?.small || card.card_faces?.[0]?.image_uris?.small || card.card_faces?.[1]?.image_uris?.small || "",
         raw: card,
     }));
 }
@@ -164,7 +186,7 @@ export async function fetchCommanderDeckCount(cardName) {
     const json = await response.json();
     return json?.container?.json_dict?.card?.num_decks || null;
   } catch (error) {
-    console.error("Erreur EDHREC:", error);
+    console.error("Erreur lors de la récupération des données EDHREC:", error);
     return null;
   }
 }
