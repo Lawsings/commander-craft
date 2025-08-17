@@ -1,3 +1,4 @@
+// netlify/functions/generate-deck.js
 import OpenAI from "openai";
 
 // ---------- Utils ----------
@@ -87,7 +88,7 @@ export const handler = async (event) => {
     const { lands, nonBasic, basic } = pickLandTargets(targetLands, colorIdentity);
     const nonLandSlots = 99 - lands;
 
-    // --- Mode MOCK (pour tester toute la chaîne sans OpenAI) ---
+    // --- Mode MOCK : pour tester sans OpenAI ---
     if (USE_MOCK) {
       const fakeSpells = [];
       for (let i = 1; i <= nonLandSlots; i++) fakeSpells.push(`Mock Spell ${i}`);
@@ -102,29 +103,9 @@ export const handler = async (event) => {
       };
     }
 
-    // Vérif clé OpenAI
     if (!OPENAI_API_KEY) {
-      return {
-        statusCode: 500,
-        body: JSON.stringify({ error: "MISSING_OPENAI_KEY", message: "OPENAI_API_KEY manquant côté serveur." })
-      };
+      return { statusCode: 500, body: JSON.stringify({ error: "MISSING_OPENAI_KEY", message: "OPENAI_API_KEY manquant côté serveur." }) };
     }
-
-    // Schéma JSON strict pour la sortie LLM (spells seulement)
-    const spellsSchema = {
-      type: "object",
-      properties: {
-        spells: {
-          type: "array",
-          items: { type: "string" },
-          minItems: nonLandSlots,
-          maxItems: nonLandSlots,
-          uniqueItems: true
-        }
-      },
-      required: ["spells"],
-      additionalProperties: false
-    };
 
     const userContext = {
       commander,
@@ -147,42 +128,29 @@ export const handler = async (event) => {
 
     const systemPrompt = [
       "Tu es un générateur de decks MTG Commander.",
-      "Renvoie UNIQUEMENT un JSON valide conforme au schéma demandé.",
-      "Contraintes obligatoires :",
-      "- Identité couleur respectée.",
-      "- Format Commander: singleton, légal Commander, pas de bannies.",
-      "- Favoriser les cartes possédées si pertinentes.",
-      "- Prendre en compte mécaniques/thèmes.",
-      "- Ratios EDH indicatifs dans les non-terrains.",
-      "Ne renvoie aucun texte d'explication humain hors JSON."
+      "Réponds UNIQUEMENT en JSON valide. Aucune explication humaine.",
+      "Contraintes : identité couleur respectée ; format Commander (singleton, légal, pas de bannies) ;",
+      "favoriser ownedCards si pertinent ; prendre en compte mechanics ; ratios EDH indicatifs.",
+      `Retourne un objet { "spells": string[] } avec EXACTEMENT ${nonLandSlots} entrées, NOMS DE CARTES non-terrains.`
     ].join("\n");
 
     const userPrompt =
 `Contexte utilisateur (JSON):
 ${JSON.stringify(userContext, null, 2)}
 
-Tâche:
-- Génère une liste de ${nonLandSlots} NOMS DE CARTES **non-terrains** (string exacts),
-- Légales en Commander et compatibles avec l'identité ${colorIdentity || "(inconnue)"},
-- Singleton (pas de doublons),
-- Inclure si possible des cartes présentes dans 'ownedCards' si pertinentes.
-
-FORMAT DE SORTIE STRICT:
+Format attendu STRICT (aucune clé en plus) :
 {
   "spells": [ /* exactement ${nonLandSlots} noms */ ]
 }`;
 
-    // ---- Appel OpenAI Responses API ----
+    // ---- Appel OpenAI Responses API : JSON simple ----
     const client = new OpenAI({ apiKey: OPENAI_API_KEY });
     let resp;
     try {
       resp = await client.responses.create({
         model: MODEL,
         input: `${systemPrompt}\n\n${userPrompt}`,
-        text: {
-          format: "json_schema",
-          json_schema: { name: "SpellsOnly", schema: spellsSchema, strict: true }
-        },
+        text: { format: "json" }, // <- IMPORTANT : JSON simple (pas json_schema)
         max_output_tokens: 1200,
         temperature: 0.8
       });
@@ -214,7 +182,7 @@ FORMAT DE SORTIE STRICT:
       return { statusCode: 502, body: JSON.stringify({ error: "INVALID_OPENAI_JSON", snippet }) };
     }
 
-    // Dédup + trim
+    // Dédup + trim + contrôle du compte
     const set = new Set();
     const cleanSpells = [];
     for (const n of spells) {
