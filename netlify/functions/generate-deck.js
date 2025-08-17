@@ -1,101 +1,22 @@
-// Fichier: netlify/functions/generate-deck.js (Version Finale)
-
-import fetch from 'node-fetch';
+// Fichier: netlify/functions/generate-deck.js (Version de débogage pour la clé API)
 
 export const handler = async (event) => {
-  console.log("Fonction 'generate-deck' (version finale) appelée.");
-
-  if (event.httpMethod !== 'POST') {
-    return { statusCode: 405, body: JSON.stringify({ error: 'Method Not Allowed' }) };
-  }
+  // On ne fait aucun import pour l'instant pour être sûr que ça ne plante pas.
 
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    console.error("Erreur critique: La variable d'environnement GEMINI_API_KEY est manquante !");
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: "Configuration serveur incorrecte." }),
-    };
-  }
 
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${apiKey}`;
+  // On crée un message de statut basé sur la présence de la clé.
+  const status = {
+    message: "Résultat du test de la variable d'environnement GEMINI_API_KEY.",
+    cleApiEstTrouvee: !!apiKey, // sera true ou false
+    previewDeLaCle: apiKey ? `${apiKey.substring(0, 4)}...${apiKey.slice(-4)}` : "Non définie"
+  };
 
-  let params;
-  try {
-    params = JSON.parse(event.body);
-  } catch (e) {
-    console.error("Erreur de parsing du corps de la requête:", e);
-    return { statusCode: 400, body: JSON.stringify({ error: "Requête malformée." })};
-  }
-
-  console.log("Paramètres reçus pour la génération :", params.commander);
-
-  const prompt = `
-    Tu es un expert mondialement reconnu dans la construction de decks pour le format Commander de Magic: The Gathering.
-    Ta mission est de construire le meilleur deck possible en respectant les contraintes suivantes.
-
-    **Contraintes strictes :**
-    - Commandant(s) : ${params.commander}
-    - Identité couleur : ${params.colorIdentity}
-    - Le deck doit contenir exactement 100 cartes, commandant inclus.
-    - Le format de sortie doit être UNIQUEMENT un objet JSON valide, sans aucun texte avant ou après, ni formatage markdown.
-
-    **Orientations et préférences :**
-    - Budget approximatif : ${params.budget} EUR. Ne choisis pas de cartes excessivement chères si des alternatives moins coûteuses et efficaces existent.
-    - Thèmes/Mécaniques à privilégier : ${params.mechanics.join(', ') || 'Aucune préférence particulière'}.
-    - Nombre de terrains cibles : Environ ${params.targetLands}. Assure-toi que la base de mana est solide, avec des terrains non-basiques pertinents si le budget le permet.
-    - Équilibre du deck : Le deck doit avoir une bonne courbe de mana, suffisamment de pioche (draw), d'accélération de mana (ramp), et de gestion des menaces (removal).
-
-    **Cartes possédées (optionnel) :**
-    Si possible, essaie d'inclure des cartes de cette liste si elles sont pertinentes pour la stratégie :
-    ${(params.ownedCards || []).slice(0, 100).join(', ')}
-
-    **Format de sortie (JSON uniquement) :**
-    Réponds avec un objet JSON qui a la structure suivante : { "commanders": ["Nom de la carte"], "spells": ["Nom de la carte", ...], "lands": ["Nom de la carte", ...] }.
-    Ne mets pas les quantités, juste les noms des cartes. Les "spells" incluent créatures, artefacts, etc.
-  `;
-
-  try {
-    console.log("Appel de l'API Gemini...");
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-            response_mime_type: "application/json",
-        }
-      }),
-    });
-
-    const responseBody = await response.json();
-
-    if (!response.ok) {
-      console.error("Réponse d'erreur de l'API Gemini:", JSON.stringify(responseBody, null, 2));
-      const errorMsg = responseBody?.error?.message || `Erreur API Gemini: ${response.statusText}`;
-      throw new Error(errorMsg);
-    }
-
-    const generatedText = responseBody?.candidates?.[0]?.content?.parts?.[0]?.text;
-
-    if (!generatedText) {
-      console.error("La réponse de Gemini est invalide ou vide. Réponse complète:", JSON.stringify(responseBody, null, 2));
-      throw new Error("L'IA n'a pas pu générer de deck. Essayez de modifier les paramètres (cela peut être dû à un filtre de sécurité).");
-    }
-
-    console.log("Deck généré par l'IA avec succès.");
-
-    return {
-      statusCode: 200,
-      headers: { 'Content-Type': 'application/json' },
-      body: generatedText,
-    };
-
-  } catch (error) {
-    console.error("Erreur dans le bloc try/catch principal:", error);
-    return {
-      statusCode: 500,
-      body: JSON.stringify({ error: error.message }),
-    };
-  }
+  // On renvoie un statut 200 (succès) avec les informations de débogage.
+  // De cette façon, ça ne plantera pas et vous verrez ce message.
+  return {
+    statusCode: 200,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(status),
+  };
 };
