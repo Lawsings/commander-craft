@@ -1,4 +1,4 @@
-// Fichier: netlify/functions/generate-deck.js (Version avec Prompt "Anti-Mana Base Folle")
+// Fichier: netlify/functions/generate-deck.js (Version finale avec "Blueprint")
 
 export const handler = async (event) => {
   if (event.httpMethod !== 'POST') {
@@ -18,37 +18,50 @@ export const handler = async (event) => {
   const params = JSON.parse(event.body);
 
   // ==================================================================
-  // PROMPT FINAL AMÉLIORÉ
+  // PROMPT FINAL AVEC BLUEPRINT STRICT
   // ==================================================================
+  // On calcule le nombre de sorts à trouver
+  const nonLandSlots = 99 - params.targetLands;
+
   const prompt = `
-    Tu es un expert en construction de decks pour le format Commander de Magic: The Gathering. Ta mission est de construire un deck légal et jouable en suivant des règles extrêmement strictes.
+    Tu es un expert en construction de decks pour le format Commander de Magic: The Gathering.
+    Ta mission est de construire un deck en suivant un "blueprint" (modèle) extrêmement strict.
 
     **RÈGLES ABSOLUES ET NON NÉGOCIABLES :**
-    1.  **TOTAL DE CARTES** : Le deck final DOIT contenir EXACTEMENT 100 cartes au total.
-    2.  **INCLUSION DU COMMANDANT** : Le commandant, "${params.commander}", DOIT être dans la liste "commanders".
-    3.  **SINGLETON** : Toutes les cartes, à l'exception des terrains de base (Plains, Island, Swamp, Mountain, Forest), doivent être en un seul exemplaire.
+    1.  **TOTAL DE CARTES** : Le deck final DOIT contenir EXACTEMENT 100 cartes.
+    2.  **COMMANDANT** : Le commandant est "${params.commander}". Il compte comme 1 carte.
+    3.  **SINGLETON** : Toutes les cartes, sauf les terrains de base, DOIVENT être en un seul exemplaire.
     4.  **IDENTITÉ COULEUR** : Toutes les cartes DOIVENT respecter l'identité couleur de "${params.colorIdentity}".
 
-    **DIRECTIVES DE CONSTRUCTION :**
-    - **Commandant** : ${params.commander}
-    - **Budget** : Approximativement ${params.budget} EUR.
-    - **Thèmes/Mécaniques** : Privilégier ${params.mechanics.join(', ') || 'une stratégie générale cohérente avec le commandant'}.
-    - **Équilibre** : Assure une bonne courbe de mana, environ 10+ cartes pour l'accélération (ramp), 10+ pour la pioche (draw), et 8-10 pour la gestion (removal).
+    ---
 
-    **CONSTRUCTION DE LA BASE DE MANA (ACTION LA PLUS IMPORTANTE) :**
-    1.  Le nombre total de terrains doit être d'environ **${params.targetLands}**.
-    2.  Choisis entre **8 et 12 terrains non-basiques** qui sont pertinents et respectent le budget.
-    3.  **Calcule** le nombre de terrains restants. Par exemple, si tu vises 37 terrains et que tu as choisi 10 terrains non-basiques, il te reste 37 - 10 = 27 terrains de base à ajouter.
-    4.  **Remplis** les places restantes avec les terrains de base appropriés à l'identité couleur. Par exemple, pour une identité "WUG" (Bant), une répartition de 9 Plains, 9 Island, 9 Forest serait correcte.
-    5.  **Assure-toi que ces terrains de base sont bien listés** dans la section "lands" de ta réponse finale.
+    **BLUEPRINT DU DECK À SUIVRE À LA LETTRE :**
+
+    Tu DOIS sélectionner un total de **${nonLandSlots} sorts** et **${params.targetLands} terrains**.
+
+    **1. Terrains (${params.targetLands} cartes) :**
+    - Choisis **10** terrains non-basiques pertinents pour la stratégie et le budget.
+    - Remplis les **${params.targetLands - 10}** places restantes avec des terrains de base (Plains, Island, Swamp, Mountain, Forest) appropriés pour l'identité couleur.
+
+    **2. Sorts (${nonLandSlots} cartes) :**
+    Tu DOIS respecter la répartition suivante. Le total de ces catégories doit faire exactement ${nonLandSlots}.
+    - **Créatures : 25 cartes.** Choisis des créatures qui synergisent avec le commandant et la stratégie.
+    - **Accélération de Mana (Ramp) : 10 cartes.** (Ex: Sol Ring, artefacts de mana, sorts de recherche de terrain).
+    - **Pioche (Draw) : 10 cartes.** (Ex: Rhystic Study, sorts pour piocher, créatures faisant piocher).
+    - **Gestion des menaces (Removal) : 10 cartes.** (Ex: Swords to Plowshares, sorts pour détruire/exiler des permanents).
+    - **Nettoyages de table (Board Wipes) : 4 cartes.** (Ex: Wrath of God, Blasphemous Act).
+    - **"Slots Flexibles" : ${nonLandSlots - (25 + 10 + 10 + 10 + 4)} cartes.** Utilise ces places pour des cartes qui renforcent les thèmes/mécaniques de "${params.mechanics.join(', ') || 'la stratégie générale'}", des tuteurs, ou des cartes uniques.
+
+    ---
 
     **VÉRIFICATION FINALE AVANT DE RÉPONDRE :**
-    - Le total des cartes (commanders + spells + lands) est-il EXACTEMENT 100 ?
-    - Y a-t-il un nombre suffisant de terrains de base ?
+    - Le total (1 commandant + ${params.targetLands} terrains + ${nonLandSlots} sorts) est-il 100 ?
+    - As-tu exactement 25 créatures ?
+    - La base de mana est-elle correcte avec ${params.targetLands - 10} terrains de base ?
 
     **FORMAT DE SORTIE (JSON STRICT) :**
-    Réponds UNIQUEMENT avec un objet JSON valide, sans texte ou formatage markdown avant ou après. La structure doit être :
-    { "commanders": ["${params.commander}"], "spells": ["Nom de carte", ...], "lands": ["Nom de carte", "Plains", "Plains", "Plains", "Island", "Island", "Island", ...] }
+    Réponds UNIQUEMENT avec un objet JSON valide. La structure doit être :
+    { "commanders": ["${params.commander}"], "spells": ["Nom de carte", ...], "lands": ["Nom de carte", "Plains", "Island", ...] }
   `;
   // ==================================================================
 
@@ -60,7 +73,14 @@ export const handler = async (event) => {
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
             response_mime_type: "application/json",
-        }
+        },
+        // On ajoute un safety setting pour être moins restrictif
+        safetySettings: [
+            { "category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE" },
+            { "category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE" },
+            { "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE" },
+            { "category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE" }
+        ]
       }),
     });
 
@@ -74,38 +94,17 @@ export const handler = async (event) => {
     const generatedText = responseBody?.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!generatedText) {
+      // Si la réponse est vide, c'est souvent à cause d'un blocage de sécurité malgré tout.
+      if (responseBody?.candidates?.[0]?.finishReason === 'SAFETY') {
+          throw new Error("La génération a été bloquée par les filtres de sécurité de l'IA. Essayez un commandant ou des mécaniques différentes.");
+      }
       throw new Error("L'IA n'a pas pu générer de deck. Essayez de modifier les paramètres.");
     }
-
-    // Petite correction pour gérer les cas où l'IA renvoie les terrains de base avec des quantités
-    // au lieu de les répéter, même si on lui demande de les répéter.
-    let deckJson;
-    try {
-        deckJson = JSON.parse(generatedText);
-    } catch (e) {
-        throw new Error("L'IA a renvoyé un JSON invalide.");
-    }
-
-    const finalLands = [];
-    for (const land of deckJson.lands) {
-        // Gère les formats comme "10x Forest" ou "10 Forest"
-        const match = land.match(/^\s*(\d+)\s*x?\s*(Plains|Island|Swamp|Mountain|Forest)\s*$/i);
-        if (match) {
-            const count = parseInt(match[1], 10);
-            const basicLandName = match[2].charAt(0).toUpperCase() + match[2].slice(1).toLowerCase();
-            for (let i = 0; i < count; i++) {
-                finalLands.push(basicLandName);
-            }
-        } else {
-            finalLands.push(land);
-        }
-    }
-    deckJson.lands = finalLands;
 
     return {
       statusCode: 200,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(deckJson),
+      body: generatedText,
     };
 
   } catch (error) {
