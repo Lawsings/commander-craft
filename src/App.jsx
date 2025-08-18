@@ -1,4 +1,4 @@
-// Fichier: src/App.jsx (Complet et Nettoyé)
+// Fichier: src/App.jsx (Complet et Corrigé sans duplications)
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCcw, Shuffle, Copy, Download, Upload, Settings2, Info, Sparkles, Trash2, Sun, Moon } from "lucide-react";
 
@@ -141,11 +141,6 @@ export default function App() {
       const aiDeck = result.deck;
       console.log('Structure reçue de l\'API:', aiDeck);
 
-      // Logs de débogage pour voir ce que l'API renvoie
-      console.log('Spells from API:', aiDeck.spells?.slice(0, 10));
-      console.log('Lands from API:', aiDeck.lands?.slice(0, 10));
-      console.log('Commanders from API:', aiDeck.commanders);
-
       setGenerationProgress({ active: true, step: 'Récupération des données des cartes...', percent: 50 });
 
       const allSpellNames = aiDeck.spells || [];
@@ -161,60 +156,26 @@ export default function App() {
 
       setGenerationProgress({ active: true, step: 'Récupération des cartes depuis Scryfall...', percent: 75 });
 
-      // Remplacer la section de récupération des cartes Scryfall par ceci :
-
-    const cardPromises = allNames.map(async (name) => {
-      try {
-        const cleanName = name.split('//')[0].trim();
-        const card = await sf.namedExact(cleanName);
-        return { original: name, card, found: true };
-      } catch (error) {
-        console.warn(`Carte non trouvée: ${name}`, error);
-        return { original: name, card: null, found: false };
-      }
-    });
-
-    const cardResults = await Promise.all(cardPromises);
-    const validCards = cardResults.filter(r => r.found).map(r => r.card);
-    const missingCards = cardResults.filter(r => !r.found);
-
-    console.log('Cartes trouvées sur Scryfall:', validCards.length);
-    console.log('Cartes manquantes:', missingCards.length, missingCards.map(m => m.original));
-
-    // Calculer les cartes manquantes par catégorie
-    const missingSpells = missingCards.filter(m => allSpellNames.includes(m.original)).length;
-    const missingLands = missingCards.filter(m => allLandNames.includes(m.original)).length;
-
-    if (missingCards.length > 0) {
-      console.warn(`${missingCards.length} cartes non trouvées:`, {
-        sorts: missingSpells,
-        terrains: missingLands
+      // Gestion améliorée des cartes manquantes
+      const cardPromises = allNames.map(async (name) => {
+        try {
+          const cleanName = name.split('//')[0].trim();
+          const card = await sf.namedExact(cleanName);
+          return { original: name, card, found: true };
+        } catch (error) {
+          console.warn(`Carte non trouvée: ${name}`, error);
+          return { original: name, card: null, found: false };
+        }
       });
-    }
 
-    // Ajuster les totaux attendus en fonction des cartes manquantes
-    const expectedNonlands = allSpellNames.length - missingSpells;
-    const expectedLands = allLandNames.length - missingLands;
+      const cardResultsWithStatus = await Promise.all(cardPromises);
+      const validCardsFound = cardResultsWithStatus.filter(r => r.found).map(r => r.card);
+      const missingCards = cardResultsWithStatus.filter(r => !r.found);
 
-    console.log('Totaux attendus après ajustement:', {
-      sorts: expectedNonlands,
-      terrains: expectedLands,
-      total: expectedNonlands + expectedLands + 1 // +1 pour le commandant
-    });
+      console.log('Cartes trouvées sur Scryfall:', validCardsFound.length);
+      console.log('Cartes manquantes:', missingCards.length, missingCards.map(m => m.original));
 
-      const cardResults = await Promise.all(cardPromises);
-      const validCards = cardResults.filter(Boolean);
-
-      console.log('Cartes trouvées sur Scryfall:', validCards.length);
-
-      // Logs pour voir les types de cartes
-      console.log('Exemples de cartes trouvées:', validCards.slice(0, 10).map(c => ({
-        name: nameOf(c),
-        type_line: c.type_line,
-        isLand: c.type_line.toLowerCase().includes('land')
-      })));
-
-      // NOUVELLE LOGIQUE DE FILTRAGE - Plus robuste
+      // LOGIQUE DE FILTRAGE - Plus robuste
       const commandersFull = [];
       const nonlandCardsRaw = [];
       const landCardsRaw = [];
@@ -224,7 +185,7 @@ export default function App() {
       const spellSet = new Set(allSpellNames.map(name => name.split('//')[0].trim().toLowerCase()));
       const landSet = new Set(allLandNames.map(name => name.split('//')[0].trim().toLowerCase()));
 
-      validCards.forEach(card => {
+      validCardsFound.forEach(card => {
         const cardName = nameOf(card).toLowerCase();
         const isLandType = card.type_line.toLowerCase().includes('land');
 
@@ -252,31 +213,19 @@ export default function App() {
       console.log('Sorts non-terrains organisés:', nonlandCardsRaw.length);
       console.log('Terrains organisés:', landCardsRaw.length);
 
-      // Si on n'a toujours pas de sorts, c'est un problème avec l'API
-      if (nonlandCardsRaw.length === 0 && allSpellNames.length > 0) {
-        console.error('PROBLÈME: Aucun sort non-terrain trouvé malgré', allSpellNames.length, 'sorts dans la réponse API');
-        console.log('Premiers sorts de l\'API:', allSpellNames.slice(0, 5));
-
-        // Essayons de forcer l'ajout de cartes non-terrains
-        const fallbackNonlands = validCards.filter(card => {
-          const isLand = card.type_line.toLowerCase().includes('land');
-          const isCommander = commanderSet.has(nameOf(card).toLowerCase());
-          return !isLand && !isCommander;
-        });
-
-        console.log('Cartes non-terrains trouvées en fallback:', fallbackNonlands.length);
-        nonlandCardsRaw.push(...fallbackNonlands);
-      }
-
       // Créer la map des terrains avec quantités
       const landsMap = {};
       allLandNames.forEach(landName => {
         const normalizedName = landName.split('//')[0].trim();
-        landsMap[normalizedName] = (landsMap[normalizedName] || 0) + 1;
+        // Vérifier si cette terre a été trouvée sur Scryfall
+        const foundLand = validCardsFound.find(card => nameOf(card) === normalizedName);
+        if (foundLand) {
+          landsMap[normalizedName] = (landsMap[normalizedName] || 0) + 1;
+        }
       });
 
       // Calculer le prix total
-      const spent = validCards.reduce((total, card) => total + priceEUR(card), 0);
+      const spent = validCardsFound.reduce((total, card) => total + priceEUR(card), 0);
 
       // Identifier les cartes spéciales
       identifySpecialCards([...commandersFull, ...nonlandCardsRaw]);
@@ -304,34 +253,25 @@ export default function App() {
         balanceCounts: countCats(nonlandCardsRaw)
       };
 
-      console.log('Deck final construit:', {
+      // Validation finale du total
+      const finalTotal = finalDeck.commanders.length +
+                        Object.values(finalDeck.nonlands).reduce((a,b) => a+b, 0) +
+                        Object.values(finalDeck.lands).reduce((a,b) => a+b, 0);
+
+      console.log('Validation finale:', {
         commandants: finalDeck.commanders.length,
-        nonlands: Object.keys(finalDeck.nonlands).length,
-        lands: Object.keys(finalDeck.lands).length,
-        total: finalDeck.commanders.length + Object.values(finalDeck.nonlands).reduce((a,b) => a+b, 0) + Object.values(finalDeck.lands).reduce((a,b) => a+b, 0)
+        sorts: Object.values(finalDeck.nonlands).reduce((a,b) => a+b, 0),
+        terrains: Object.values(finalDeck.lands).reduce((a,b) => a+b, 0),
+        total: finalTotal,
+        objectif: 100,
+        cartesManquantes: missingCards.length
       });
 
+      if (finalTotal !== 100) {
+        console.warn(`⚠️ Deck incomplet: ${finalTotal}/100 cartes (${missingCards.length} cartes non trouvées)`);
+      }
+
       await sleep(500);
-
-    // À ajouter juste avant setDeck(finalDeck) :
-
-        const finalTotal = finalDeck.commanders.length +
-                          Object.values(finalDeck.nonlands).reduce((a,b) => a+b, 0) +
-                          Object.values(finalDeck.lands).reduce((a,b) => a+b, 0);
-
-        console.log('Validation finale:', {
-          commandants: finalDeck.commanders.length,
-          sorts: Object.values(finalDeck.nonlands).reduce((a,b) => a+b, 0),
-          terrains: Object.values(finalDeck.lands).reduce((a,b) => a+b, 0),
-          total: finalTotal,
-          objectif: 100
-        });
-
-        if (finalTotal !== 100) {
-          console.warn(`⚠️ Deck incomplet: ${finalTotal}/100 cartes`);
-          // Optionnel : afficher un avertissement à l'utilisateur
-          // setError(`Attention: Le deck généré contient ${finalTotal}/100 cartes à cause de cartes non trouvées.`);
-        }
       setDeck(finalDeck);
 
     } catch (e) {
@@ -340,201 +280,8 @@ export default function App() {
     } finally {
       setGenerationProgress({ active: false, step: '', percent: 0 });
     }
-  };const generate = async () => {
-  setError("");
-  setDeck(null);
-  setCommandersExtraInfo({});
-  setSpecialCards({ winCons: new Set(), gameChangers: new Set() });
-  setGenerationProgress({ active: true, step: 'Initialisation...', percent: 0 });
+  };
 
-  let finalCommanderCard;
-  try {
-    setGenerationProgress({ active: true, step: 'Sélection du commandant...', percent: 10 });
-    finalCommanderCard = (commanderMode === 'select' && selectedCommanderCard) ? selectedCommanderCard : await pickCommander(desiredCI);
-  } catch (e) {
-    setError(e.message || String(e));
-    setGenerationProgress({ active: false, step: '', percent: 0 });
-    return;
-  }
-
-  const finalCommanderName = nameOf(finalCommanderCard);
-  const finalCI = getCI(finalCommanderCard);
-
-  setGenerationProgress({ active: true, step: 'Envoi de la requête à l\'IA...', percent: 25 });
-
-  try {
-    const response = await fetch('/.netlify/functions/generate-deck', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        commander: finalCommanderName,
-        colorIdentity: finalCI,
-        budget: Number(deckBudget) || 0,
-        mechanics: mechanics,
-        ownedCards: Array.from(ownedMap.keys()),
-        targetLands: targetLands,
-      }),
-    });
-
-    if (!response.ok) {
-      const contentType = response.headers.get('content-type');
-      if (contentType && contentType.includes('application/json')) {
-        const err = await response.json();
-        throw new Error(err.error || 'La génération du deck a échoué.');
-      } else {
-        throw new Error(`Erreur serveur: ${response.status} ${response.statusText}`);
-      }
-    }
-
-    const result = await response.json();
-
-    if (!result.success || !result.deck) {
-      throw new Error(result.error || 'Réponse invalide du serveur');
-    }
-
-    const aiDeck = result.deck;
-    console.log('Structure reçue de l\'API:', aiDeck);
-
-    setGenerationProgress({ active: true, step: 'Récupération des données des cartes...', percent: 50 });
-
-    const allSpellNames = aiDeck.spells || [];
-    const allLandNames = aiDeck.lands || [];
-    const commanderNames = aiDeck.commanders || [finalCommanderName];
-
-    console.log('Sorts extraits:', allSpellNames.length);
-    console.log('Terrains extraits:', allLandNames.length);
-    console.log('Commandants extraits:', commanderNames.length);
-
-    // Récupérer les données complètes des cartes depuis Scryfall
-    const allNames = [...new Set([...commanderNames, ...allSpellNames, ...allLandNames])];
-
-    setGenerationProgress({ active: true, step: 'Récupération des cartes depuis Scryfall...', percent: 75 });
-
-    // NOUVELLE VERSION - gestion améliorée des cartes manquantes
-    const cardPromises = allNames.map(async (name) => {
-      try {
-        const cleanName = name.split('//')[0].trim();
-        const card = await sf.namedExact(cleanName);
-        return { original: name, card, found: true };
-      } catch (error) {
-        console.warn(`Carte non trouvée: ${name}`, error);
-        return { original: name, card: null, found: false };
-      }
-    });
-
-    const cardResultsWithStatus = await Promise.all(cardPromises);
-    const validCardsFound = cardResultsWithStatus.filter(r => r.found).map(r => r.card);
-    const missingCards = cardResultsWithStatus.filter(r => !r.found);
-
-    console.log('Cartes trouvées sur Scryfall:', validCardsFound.length);
-    console.log('Cartes manquantes:', missingCards.length, missingCards.map(m => m.original));
-
-    // NOUVELLE LOGIQUE DE FILTRAGE - Plus robuste
-    const commandersFull = [];
-    const nonlandCardsRaw = [];
-    const landCardsRaw = [];
-
-    // Créer des sets pour une recherche plus efficace
-    const commanderSet = new Set(commanderNames.map(name => name.split('//')[0].trim().toLowerCase()));
-    const spellSet = new Set(allSpellNames.map(name => name.split('//')[0].trim().toLowerCase()));
-    const landSet = new Set(allLandNames.map(name => name.split('//')[0].trim().toLowerCase()));
-
-    validCardsFound.forEach(card => {
-      const cardName = nameOf(card).toLowerCase();
-      const isLandType = card.type_line.toLowerCase().includes('land');
-
-      // D'abord vérifier si c'est un commandant
-      if (commanderSet.has(cardName)) {
-        commandersFull.push(card);
-      }
-      // Ensuite vérifier si c'est un terrain (soit dans la liste, soit par type)
-      else if (landSet.has(cardName) || isLandType) {
-        landCardsRaw.push(card);
-      }
-      // Sinon c'est un sort non-terrain
-      else if (spellSet.has(cardName)) {
-        nonlandCardsRaw.push(card);
-      }
-      // Fallback : si la carte n'est dans aucune liste mais n'est pas un terrain
-      else if (!isLandType) {
-        console.log(`Carte non catégorisée ajoutée aux sorts: ${nameOf(card)}`);
-        nonlandCardsRaw.push(card);
-      }
-    });
-
-    console.log('Après filtrage amélioré:');
-    console.log('Commandants organisés:', commandersFull.length);
-    console.log('Sorts non-terrains organisés:', nonlandCardsRaw.length);
-    console.log('Terrains organisés:', landCardsRaw.length);
-
-    // Créer la map des terrains avec quantités
-    const landsMap = {};
-    allLandNames.forEach(landName => {
-      const normalizedName = landName.split('//')[0].trim();
-      // Vérifier si cette terre a été trouvée sur Scryfall
-      const foundLand = validCardsFound.find(card => nameOf(card) === normalizedName);
-      if (foundLand) {
-        landsMap[normalizedName] = (landsMap[normalizedName] || 0) + 1;
-      }
-    });
-
-    // Calculer le prix total
-    const spent = validCardsFound.reduce((total, card) => total + priceEUR(card), 0);
-
-    // Identifier les cartes spéciales
-    identifySpecialCards([...commandersFull, ...nonlandCardsRaw]);
-
-    // Récupérer les infos EDHREC pour les commandants
-    fetchCommanderDeckCount(finalCommanderName).then(deckCount => {
-      if(deckCount) {
-        setCommandersExtraInfo({ [finalCommanderName]: { deckCount } });
-      }
-    }).catch(() => {});
-
-    setGenerationProgress({ active: true, step: 'Finalisation...', percent: 95 });
-
-    const finalDeck = {
-      colorIdentity: finalCI,
-      commanders: commandersFull.map(nameOf),
-      commandersFull: commandersFull.map(bundleCard),
-      nonlands: nonlandCardsRaw.reduce((acc, c) => ({...acc, [nameOf(c)]: 1 }), {}),
-      nonlandCards: nonlandCardsRaw.map(bundleCard),
-      lands: landsMap,
-      landCards: await buildLandCards(landsMap),
-      budget: Number(deckBudget) || 0,
-      spent: Number(spent.toFixed(2)),
-      balanceTargets: targets,
-      balanceCounts: countCats(nonlandCardsRaw)
-    };
-
-    // Validation finale du total
-    const finalTotal = finalDeck.commanders.length +
-                      Object.values(finalDeck.nonlands).reduce((a,b) => a+b, 0) +
-                      Object.values(finalDeck.lands).reduce((a,b) => a+b, 0);
-
-    console.log('Validation finale:', {
-      commandants: finalDeck.commanders.length,
-      sorts: Object.values(finalDeck.nonlands).reduce((a,b) => a+b, 0),
-      terrains: Object.values(finalDeck.lands).reduce((a,b) => a+b, 0),
-      total: finalTotal,
-      objectif: 100,
-      cartesManquantes: missingCards.length
-    });
-
-    if (finalTotal !== 100) {
-      console.warn(`⚠️ Deck incomplet: ${finalTotal}/100 cartes (${missingCards.length} cartes non trouvées)`);
-    }
-
-    await sleep(500);
-    setDeck(finalDeck);
-
-  } catch (e) {
-    console.error('Erreur lors de la génération:', e);
-    setError(e.message || 'Une erreur inattendue s\'est produite');
-  } finally {
-    setGenerationProgress({ active: false, step: '', percent: 0 });
-  }
-};
   useEffect(() => {
     if (deck) commanderSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [deck]);
@@ -668,7 +415,7 @@ export default function App() {
           {deck && (
             <div className="space-y-8">
               <div className="glass p-6">
-                <h3 className="font-medium mb-3">Cibles d’équilibrage (pour affichage)</h3>
+                <h3 className="font-medium mb-3">Cibles d'équilibrage (pour affichage)</h3>
                 <div className="grid md:grid-cols-2 gap-4 text-sm">
                   {["ramp","draw","removal","wraths"].map(cat=> (
                     <div key={cat} className="flex items-center gap-2">
@@ -734,7 +481,7 @@ export default function App() {
           )}
         </div>
         <CardModal open={showModal} card={modalCard} owned={modalOwned} onClose={() => setShowModal(false)} />
-        <footer className="mt-10 text-xs muted">Fait avec ❤️ — Scryfall API. L'IA est propulsée par Google Gemini. Non affilié à WotC.</footer>
+        <footer className="mt-10 text-xs muted">Fait avec ❤️ — Scryfall API. L'IA est propulsée par OpenAI. Non affilié à WotC.</footer>
       </div>
     </div>
   );
