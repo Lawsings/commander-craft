@@ -121,44 +121,54 @@ function pickLandTargets(targetLands, colorIdentity) {
   return { lands, nonBasic, basic };
 }
 
-// Prompt simplifié et plus robuste pour OpenAI
 function buildDeckPrompt({ commander, colorIdentity, budget, mechanics, lands, nonBasic, basic }) {
   const colors = ciToArray(colorIdentity);
   const budgetText = budget > 100 ? "élevé" : budget > 50 ? "moyen" : "faible";
   const mechanicsText = mechanics.length > 0 ? mechanics.join(", ") : "synergie générale";
+  const spellsCount = COMMANDER_STRUCTURE.totalCards - lands;
 
   return `Tu es un expert en Magic: The Gathering spécialisé en format Commander.
 
-MISSION: Créer une liste de deck Commander de EXACTEMENT ${COMMANDER_STRUCTURE.totalCards} cartes.
+MISSION: Créer une liste de deck Commander de EXACTEMENT ${COMMANDER_STRUCTURE.totalCards} cartes (hors commandant).
 
 COMMANDANT: ${commander}
 IDENTITÉ COULEUR: ${colors.join("") || "Incolore"}
 BUDGET: ${budgetText}
 MÉCANIQUES: ${mechanicsText}
 
-STRUCTURE REQUISE:
-- ${COMMANDER_STRUCTURE.spells.creatures.target} créatures
-- ${COMMANDER_STRUCTURE.spells.ramp.target} sorts de ramp/accélération de mana
+STRUCTURE OBLIGATOIRE:
+- EXACTEMENT ${spellsCount} sorts non-terrains
+- EXACTEMENT ${lands} terrains
+
+RÉPARTITION DES SORTS (${spellsCount} au total):
+- ${COMMANDER_STRUCTURE.spells.creatures.target} créatures synergiques
+- ${COMMANDER_STRUCTURE.spells.ramp.target} sorts de ramp/accélération
 - ${COMMANDER_STRUCTURE.spells.removal.target} sorts de removal/destruction
 - ${COMMANDER_STRUCTURE.spells.draw.target} sorts de pioche/card draw
 - ${COMMANDER_STRUCTURE.spells.wincons.target} conditions de victoire
 - ${COMMANDER_STRUCTURE.spells.utility.target} autres sorts utilitaires
-- ${lands} terrains (${basic} basics + ${nonBasic} non-basics)
 
-RÈGLES STRICTES:
-1. TOTAL = ${COMMANDER_STRUCTURE.totalCards} cartes exactement
-2. Respecter l'identité couleur: ${colors.join("") || "Incolore"}
-3. Aucun doublon (sauf terrains de base)
-4. Noms de cartes en ANGLAIS uniquement
-5. Cartes légales en Commander
+RÈGLES CRITIQUES:
+1. Noms de cartes en ANGLAIS uniquement
+2. SEULEMENT des cartes Magic existantes - PAS de cartes inventées
+3. Respecter l'identité couleur: ${colors.join("") || "Incolore"}
+4. Aucun doublon (sauf terrains de base)
+5. Cartes légales en format Commander
+6. VÉRIFIER: ${spellsCount} sorts + ${lands} terrains = ${COMMANDER_STRUCTURE.totalCards} cartes
 
-RÉPONSE JSON OBLIGATOIRE:
+EXEMPLES de cartes populaires par catégorie:
+- Ramp: Sol Ring, Arcane Signet, Cultivate, Kodama's Reach, Rampant Growth
+- Pioche: Rhystic Study, Sylvan Library, Harmonize, Divination
+- Removal: Beast Within, Swords to Plowshares, Counterspell, Lightning Bolt
+
+RÉPONSE JSON OBLIGATOIRE (compter soigneusement):
 {
   "commanders": ["${commander}"],
-  "spells": [liste de ${COMMANDER_STRUCTURE.totalCards - lands} noms de sorts],
-  "lands": [liste de ${lands} noms de terrains]
+  "spells": [exactement ${spellsCount} noms de sorts non-terrains existants],
+  "lands": [exactement ${lands} noms de terrains existants]
 }
 
+IMPORTANT: Compte tes cartes ! ${spellsCount} sorts + ${lands} terrains = ${COMMANDER_STRUCTURE.totalCards} total.
 Fournis UNIQUEMENT le JSON, rien d'autre.`;
 }
 

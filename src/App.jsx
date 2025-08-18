@@ -161,16 +161,46 @@ export default function App() {
 
       setGenerationProgress({ active: true, step: 'Récupération des cartes depuis Scryfall...', percent: 75 });
 
-      const cardPromises = allNames.map(async (name) => {
-        try {
-          const cleanName = name.split('//')[0].trim();
-          const card = await sf.namedExact(cleanName);
-          return card;
-        } catch (error) {
-          console.warn(`Carte non trouvée: ${name}`, error);
-          return null;
-        }
+      // Remplacer la section de récupération des cartes Scryfall par ceci :
+
+    const cardPromises = allNames.map(async (name) => {
+      try {
+        const cleanName = name.split('//')[0].trim();
+        const card = await sf.namedExact(cleanName);
+        return { original: name, card, found: true };
+      } catch (error) {
+        console.warn(`Carte non trouvée: ${name}`, error);
+        return { original: name, card: null, found: false };
+      }
+    });
+
+    const cardResults = await Promise.all(cardPromises);
+    const validCards = cardResults.filter(r => r.found).map(r => r.card);
+    const missingCards = cardResults.filter(r => !r.found);
+
+    console.log('Cartes trouvées sur Scryfall:', validCards.length);
+    console.log('Cartes manquantes:', missingCards.length, missingCards.map(m => m.original));
+
+    // Calculer les cartes manquantes par catégorie
+    const missingSpells = missingCards.filter(m => allSpellNames.includes(m.original)).length;
+    const missingLands = missingCards.filter(m => allLandNames.includes(m.original)).length;
+
+    if (missingCards.length > 0) {
+      console.warn(`${missingCards.length} cartes non trouvées:`, {
+        sorts: missingSpells,
+        terrains: missingLands
       });
+    }
+
+    // Ajuster les totaux attendus en fonction des cartes manquantes
+    const expectedNonlands = allSpellNames.length - missingSpells;
+    const expectedLands = allLandNames.length - missingLands;
+
+    console.log('Totaux attendus après ajustement:', {
+      sorts: expectedNonlands,
+      terrains: expectedLands,
+      total: expectedNonlands + expectedLands + 1 // +1 pour le commandant
+    });
 
       const cardResults = await Promise.all(cardPromises);
       const validCards = cardResults.filter(Boolean);
@@ -282,6 +312,26 @@ export default function App() {
       });
 
       await sleep(500);
+
+    // À ajouter juste avant setDeck(finalDeck) :
+
+        const finalTotal = finalDeck.commanders.length +
+                          Object.values(finalDeck.nonlands).reduce((a,b) => a+b, 0) +
+                          Object.values(finalDeck.lands).reduce((a,b) => a+b, 0);
+
+        console.log('Validation finale:', {
+          commandants: finalDeck.commanders.length,
+          sorts: Object.values(finalDeck.nonlands).reduce((a,b) => a+b, 0),
+          terrains: Object.values(finalDeck.lands).reduce((a,b) => a+b, 0),
+          total: finalTotal,
+          objectif: 100
+        });
+
+        if (finalTotal !== 100) {
+          console.warn(`⚠️ Deck incomplet: ${finalTotal}/100 cartes`);
+          // Optionnel : afficher un avertissement à l'utilisateur
+          // setError(`Attention: Le deck généré contient ${finalTotal}/100 cartes à cause de cartes non trouvées.`);
+        }
       setDeck(finalDeck);
 
     } catch (e) {
