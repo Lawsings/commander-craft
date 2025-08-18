@@ -1,4 +1,4 @@
-// Fichier: src/App.jsx (Complet et Nettoyé)
+// Fichier: src/App.jsx (Complet et Corrigé)
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { RefreshCcw, Shuffle, Copy, Download, Upload, Settings2, Info, Sparkles, Trash2, Sun, Moon } from "lucide-react";
 
@@ -123,38 +123,78 @@ export default function App() {
       });
 
       if (!response.ok) {
-        const err = await response.json().catch(() => ({ error: 'Réponse invalide du serveur.' }));
-        throw new Error(err.error || 'La génération du deck a échoué.');
+        const contentType = response.headers.get('content-type');
+        if (contentType && contentType.includes('application/json')) {
+          const err = await response.json();
+          throw new Error(err.error || 'La génération du deck a échoué.');
+        } else {
+          throw new Error(`Erreur serveur: ${response.status} ${response.statusText}`);
+        }
       }
 
-      const aiDeck = await response.json();
-      setGenerationProgress({ active: true, step: 'Récupération des données des cartes...', percent: 75 });
+      const result = await response.json();
+      
+      // Vérifier que la réponse contient bien les données attendues
+      if (!result.success || !result.deck) {
+        throw new Error(result.error || 'Réponse invalide du serveur');
+      }
 
-      const allNames = [...new Set([...aiDeck.commanders, ...aiDeck.spells, ...aiDeck.lands])];
-      const cardObjects = await Promise.all(allNames.map(name => sf.namedExact(name.split('//')[0].trim()).catch(() => null)));
-      const validCards = cardObjects.filter(Boolean);
+      const aiDeck = result.deck;
 
-      const commandersFull = validCards.filter(c => aiDeck.commanders.includes(nameOf(c)));
-      const nonlandCardsRaw = validCards.filter(c => aiDeck.spells.includes(nameOf(c)));
-      const landCardsRaw = validCards.filter(c => aiDeck.lands.includes(nameOf(c)));
+      setGenerationProgress({ active: true, step: 'Récupération des données des cartes...', percent: 50 });
 
-      const landsMap = landCardsRaw.reduce((acc, l) => {
-          const name = nameOf(l);
-          acc[name] = (acc[name] || 0) + 1;
-          return acc;
-      }, {});
+      // Traitement des données du deck
+      const allSpellNames = aiDeck.spells || [];
+      const allLandNames = aiDeck.lands || [];
+      const commanderNames = aiDeck.commanders || [finalCommanderName];
 
-      const spent = validCards.reduce((total, card) => total + priceEUR(card), 0);
-      identifySpecialCards(validCards);
+      // Récupérer les données complètes des cartes depuis Scryfall
+      const allNames = [...new Set([...commanderNames, ...allSpellNames, ...allLandNames])];
+      
+      setGenerationProgress({ active: true, step: 'Récupération des cartes depuis Scryfall...', percent: 75 });
 
-      fetchCommanderDeckCount(finalCommanderName).then(deckCount => {
-        if(deckCount) setCommandersExtraInfo({ [finalCommanderName]: { deckCount } });
+      const cardPromises = allNames.map(async (name) => {
+        try {
+          const card = await sf.namedExact(name.split('//')[0].trim());
+          return card;
+        } catch (error) {
+          console.warn(`Carte non trouvée: ${name}`, error);
+          return null;
+        }
       });
 
-      setGenerationProgress({ active: true, step: 'Finalisation...', percent: 100 });
-      await sleep(500);
+      const cardResults = await Promise.all(cardPromises);
+      const validCards = cardResults.filter(Boolean);
 
-      setDeck({
+      // Organiser les cartes par catégorie
+      const commandersFull = validCards.filter(c => commanderNames.includes(nameOf(c)));
+      const nonlandCardsRaw = validCards.filter(c => allSpellNames.includes(nameOf(c)));
+      const landCardsRaw = validCards.filter(c => allLandNames.includes(nameOf(c)));
+
+      // Créer la map des terrains avec quantités
+      const landsMap = {};
+      allLandNames.forEach(landName => {
+        const normalizedName = landName.split('//')[0].trim();
+        landsMap[normalizedName] = (landsMap[normalizedName] || 0) + 1;
+      });
+
+      // Calculer le prix total
+      const spent = validCards.reduce((total, card) => total + priceEUR(card), 0);
+      
+      // Identifier les cartes spéciales
+      identifySpecialCards(validCards);
+
+      // Récupérer les infos EDHREC pour les commandants
+      fetchCommanderDeckCount(finalCommanderName).then(deckCount => {
+        if(deckCount) {
+          setCommandersExtraInfo({ [finalCommanderName]: { deckCount } });
+        }
+      }).catch(() => {}); // Ignorer les erreurs EDHREC
+
+      setGenerationProgress({ active: true, step: 'Finalisation...', percent: 95 });
+
+      // Construire l'objet deck final
+      const finalDeck = {
         colorIdentity: finalCI,
         commanders: commandersFull.map(nameOf),
         commandersFull: commandersFull.map(bundleCard),
@@ -166,10 +206,14 @@ export default function App() {
         spent: Number(spent.toFixed(2)),
         balanceTargets: targets,
         balanceCounts: countCats(nonlandCardsRaw)
-      });
+      };
+
+      await sleep(500); // Petit délai pour l'UX
+      setDeck(finalDeck);
 
     } catch (e) {
-      setError(e.message || String(e));
+      console.error('Erreur lors de la génération:', e);
+      setError(e.message || 'Une erreur inattendue s\'est produite');
     } finally {
       setGenerationProgress({ active: false, step: '', percent: 0 });
     }
@@ -308,7 +352,7 @@ export default function App() {
           {deck && (
             <div className="space-y-8">
               <div className="glass p-6">
-                <h3 className="font-medium mb-3">Cibles d’équilibrage (pour affichage)</h3>
+                <h3 className="font-medium mb-3">Cibles d'équilibrage (pour affichage)</h3>
                 <div className="grid md:grid-cols-2 gap-4 text-sm">
                   {["ramp","draw","removal","wraths"].map(cat=> (
                     <div key={cat} className="flex items-center gap-2">
