@@ -216,21 +216,21 @@ export const handler = async (event) => {
     const USE_MOCK = process.env.USE_MOCK === "1";
 
     if (!OPENAI_API_KEY && !USE_MOCK) {
-      return { 
-        statusCode: 500, 
-        headers: { ...CORS }, 
-        body: JSON.stringify({ error: "Configuration API manquante" }) 
+      return {
+        statusCode: 500,
+        headers: { ...CORS },
+        body: JSON.stringify({ error: "Configuration API manquante" })
       };
     }
 
     let payload;
-    try { 
-      payload = JSON.parse(event.body || "{}"); 
+    try {
+      payload = JSON.parse(event.body || "{}");
     } catch {
-      return { 
-        statusCode: 400, 
-        headers: { ...CORS }, 
-        body: JSON.stringify({ error: "Corps JSON invalide." }) 
+      return {
+        statusCode: 400,
+        headers: { ...CORS },
+        body: JSON.stringify({ error: "Corps JSON invalide." })
       };
     }
 
@@ -243,10 +243,10 @@ export const handler = async (event) => {
     } = payload;
 
     if (!commander || typeof commander !== "string") {
-      return { 
-        statusCode: 400, 
-        headers: { ...CORS }, 
-        body: JSON.stringify({ error: "Paramètre 'commander' requis." }) 
+      return {
+        statusCode: 400,
+        headers: { ...CORS },
+        body: JSON.stringify({ error: "Paramètre 'commander' requis." })
       };
     }
 
@@ -264,24 +264,53 @@ export const handler = async (event) => {
     ]);
 
     if (USE_MOCK) {
-      // Version mock pour les tests
-      const mockDeck = {
-        commanders: [commander],
-        spells: Array(COMMANDER_STRUCTURE.totalCards - lands).fill("Mock Spell").map((_, i) => `${_} ${i + 1}`),
-        lands: [...basicLands, ...nonBasicLands]
-      };
+        // Version mock pour les tests avec de vraies cartes
+        const mockSpells = [
+          // Créatures
+          "Llanowar Elves", "Elvish Mystic", "Birds of Paradise", "Noble Hierarch",
+          "Eternal Witness", "Reclamation Sage", "Acidic Slime", "Wood Elves",
+          "Farhaven Elf", "Sakura-Tribe Elder", "Solemn Simulacrum", "Mulldrifter",
+          "Shadowmage Infiltrator", "Coiling Oracle", "Mystic Snake", "Venser Shaper Savant",
+          "Glen Elendra Archmage", "Duplicant", "Wurmcoil Engine", "Primeval Titan",
+          "Inferno Titan", "Sun Titan", "Grave Titan", "Frost Titan",
 
-      return {
-        statusCode: 200,
-        headers: { ...CORS },
-        body: JSON.stringify({
-          success: true,
-          deck: mockDeck,
-          validation: validateDeck(mockDeck),
-          debug: { mode: "mock", lands, nonBasic, basic }
-        })
-      };
-    }
+          // Sorts de ramp
+          "Sol Ring", "Arcane Signet", "Cultivate", "Kodama's Reach",
+          "Rampant Growth", "Nature's Lore", "Three Visits", "Farseek",
+          "Chromatic Lantern", "Commander's Sphere",
+
+          // Pioche
+          "Rhystic Study", "Mystic Remora", "Sylvan Library", "Phyrexian Arena",
+          "Sign in Blood", "Divination", "Harmonize", "Fact or Fiction",
+
+          // Removal
+          "Swords to Plowshares", "Path to Exile", "Beast Within", "Generous Gift",
+          "Counterspell", "Negate", "Swan Song", "Cyclonic Rift",
+          "Wrath of God", "Day of Judgment", "Damnation", "Toxic Deluge",
+
+          // Win cons et utilitaires
+          "Lightning Bolt", "Brainstorm", "Ponder", "Preordain",
+          "Mystical Tutor", "Worldly Tutor", "Vampiric Tutor", "Demonic Tutor",
+          "Green Sun's Zenith", "Chord of Calling"
+        ];
+
+        const mockDeck = {
+          commanders: [commander],
+          spells: mockSpells.slice(0, COMMANDER_STRUCTURE.totalCards - lands),
+          lands: [...basicLands, ...nonBasicLands]
+        };
+
+        return {
+          statusCode: 200,
+          headers: { ...CORS },
+          body: JSON.stringify({
+            success: true,
+            deck: mockDeck,
+            validation: validateDeck(mockDeck),
+            debug: { mode: "mock", lands, nonBasic, basic }
+          })
+        };
+      }
 
     // Génération avec OpenAI
     const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
@@ -299,14 +328,14 @@ export const handler = async (event) => {
         },
         {
           role: "user",
-          content: buildDeckPrompt({ 
-            commander, 
-            colorIdentity, 
-            budget, 
-            mechanics, 
-            lands, 
-            nonBasic, 
-            basic 
+          content: buildDeckPrompt({
+            commander,
+            colorIdentity,
+            budget,
+            mechanics,
+            lands,
+            nonBasic,
+            basic
           })
         }
       ],
